@@ -8,7 +8,7 @@ import {FieldSet} from '@_linked/core/queries/FieldSet';
 import {getQueryDispatch} from '@_linked/core/queries/queryDispatch';
 
 import React, {useCallback, useEffect, useState} from 'react';
-import {useEditorStamp} from '../editor/stamp.js';
+import {useElementInterceptor} from './elementInterceptor.js';
 import {LinkedStorage} from '@_linked/core/utils/LinkedStorage';
 import {DEFAULT_LIMIT} from '@_linked/core/utils/Package';
 import {ShapeSet} from '@_linked/core/collections/ShapeSet';
@@ -320,8 +320,9 @@ export function createLinkedComponentFn(
           delete (linkedProps as any).loader;
           delete (linkedProps as any).errorElement;
 
-          // WP5: plan-node stamping + suspend-rerender seam (editor builds only).
-          const __editorStamp = useEditorStamp(linkedProps);
+          // Generic element-interceptor seam (no-op unless a package registers
+          // one — e.g. an instrumented build). Always called: rules of hooks.
+          const __interceptor = useElementInterceptor(linkedProps);
 
           const loadData = () => {
             const sourceId = linkedProps.source?.id;
@@ -423,7 +424,7 @@ export function createLinkedComponentFn(
 
           // Keep legacy client-side guard to avoid hydration drift.
           if (dataIsLoaded && typeof window !== 'undefined') {
-            return __editorStamp.stamp(
+            return __interceptor.stamp(
               React.createElement(functionalComponent, linkedProps),
             );
           } else {
@@ -558,8 +559,9 @@ export function createLinkedSetComponentFn(
         delete (linkedProps as any).loader;
         delete (linkedProps as any).errorElement;
 
-        // WP5: plan-node stamping + suspend-rerender seam (editor builds only).
-        const __editorStamp = useEditorStamp(linkedProps);
+        // Generic element-interceptor seam (no-op unless a package registers
+        // one — e.g. an instrumented build). Always called: rules of hooks.
+        const __interceptor = useElementInterceptor(linkedProps);
 
         let sourceIsValidQResult =
           Array.isArray(props.of) &&
@@ -676,7 +678,7 @@ export function createLinkedSetComponentFn(
         }
 
         if (dataIsLoaded) {
-          return __editorStamp.stamp(
+          return __interceptor.stamp(
             React.createElement(functionalComponent, linkedProps),
           );
         } else {

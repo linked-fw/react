@@ -5,4 +5,11 @@ export * from './utils/Hooks.js';
 export * from './utils/ClassNames.js';
 export * from './utils/useQueryContext.js';
 export {LinkedInfinityLoader} from './loaders/LinkedInfinityLoader.js';
-export * from './editor/index.js';
+// Generic element-interceptor seam. The editor runtime lives in a separate
+// (proprietary) package that registers an interceptor here — no editor code
+// ships in @_linked/react.
+export {
+  registerElementInterceptor,
+  useElementInterceptor,
+  type ElementInterceptor,
+} from './utils/elementInterceptor.js';
