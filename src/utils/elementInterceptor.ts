@@ -27,11 +27,20 @@ export interface ElementInterceptor {
 
 const IDENTITY = {stamp: (el: React.ReactNode) => el};
 
-let interceptor: ElementInterceptor | undefined;
+/**
+ * The registration lives on `globalThis`, NOT in module state. In a bundled dev
+ * app the registering package and the rendering components can easily end up
+ * importing DIFFERENT instances of this module (optimized-dep bundle vs
+ * alias-resolved file vs a transitive copy) — module state would then split the
+ * registry and the interceptor would silently never fire (the exact live
+ * failure this replaced). One well-known global slot is instance-proof.
+ */
+const SLOT = '__linked_element_interceptor__';
+type GlobalWithSlot = typeof globalThis & {[SLOT]?: ElementInterceptor};
 
 /** Install the interceptor (or clear it with `undefined`). */
 export function registerElementInterceptor(i: ElementInterceptor | undefined): void {
-  interceptor = i;
+  (globalThis as GlobalWithSlot)[SLOT] = i;
 }
 
 /**
@@ -42,6 +51,7 @@ export function registerElementInterceptor(i: ElementInterceptor | undefined): v
 export function useElementInterceptor(props: Record<string, unknown> | undefined): {
   stamp: (el: React.ReactNode) => React.ReactNode;
 } {
+  const interceptor = (globalThis as GlobalWithSlot)[SLOT];
   if (interceptor) return interceptor.useStamp(props);
   return IDENTITY;
 }
