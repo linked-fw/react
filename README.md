@@ -144,6 +144,53 @@ const NameList = linkedSetComponent({persons: personQuery}, ({persons}) => (
 
 Both formats are supported. For linked-set wrappers, the external API is also `of` (optional). Internally this becomes `sources` for the wrapped component.
 
+## Data-bearing component boundary
+
+A public component whose primary content comes from graph facts uses `linkedComponent` or
+`linkedSetComponent`, a canonical `Shape.select(...)`, and an `of={...}` subject binding. The query
+result is the data authority.
+
+Additional parent props are for callbacks, slots/renderers, route or display state, and host
+context. They must not carry a second canonical record or replace graph facts already selected by
+the component.
+
+```tsx
+const CoveragePanel = linkedSetComponent(
+  AssignmentShape.select((assignment) => [
+    assignment.assignee,
+    assignment.intervalStart,
+    assignment.intervalEnd,
+  ]),
+  ({linkedData, renderEmpty}) =>
+    linkedData.length
+      ? <CoverageRows assignments={linkedData} />
+      : renderEmpty(),
+);
+
+<CoveragePanel
+  of={{id: scheduleId}}
+  renderEmpty={() => <EmptyCoverage />}
+/>;
+```
+
+### Semantic variables and host overrides
+
+Reusable components express semantic state through a component/package variable, then a LINKED
+semantic variable, then a stable surface fallback:
+
+```css
+.gap {
+  background: var(
+    --schedule-coverage-gap-background,
+    var(--linked-warning-background, var(--linked-surface-raised))
+  );
+}
+```
+
+Do not encode semantic state with a raw brand color. A host changes the first variable at its theme
+or container scope. Contextual slots and render callbacks are the markup override seam; neither
+override path creates another data authority.
+
 ## Render lifecycle and loading state
 
 When `LinkedStorage` is initialized and data is not already preloaded in `of`:
