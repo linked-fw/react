@@ -799,7 +799,7 @@ export function getSourceFromInputProps(props, shapeClass) {
   if (input instanceof Shape) {
     if (
       input.nodeShape !== shapeClass.shape &&
-      !hasSuperClass(getShapeClass(input.nodeShape.id), shapeClass)
+      !hasSuperClass(input.nodeShape.id, shapeClass)
     ) {
       return new shapeClass(input.id);
     }
