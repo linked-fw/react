@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.5.1
+
+### Patch Changes
+
+- [#44](https://github.com/linked-fw/react/pull/44) [`df85a0e`](https://github.com/linked-fw/react/commit/df85a0ed60c6ecc2d4cb778563e4fd9fa3562389) Thanks [@flyon](https://github.com/flyon)! - Declare npm as the package manager for this repo and mark `package-lock.json` as a generated file. No script changes were needed: nothing in this package invoked `yarn`.
+
 ## 1.5.0
 
 ### Minor Changes
