@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.6.0
+
+### Minor Changes
+
+- [#52](https://github.com/linked-fw/react/pull/52) [`df073f9`](https://github.com/linked-fw/react/commit/df073f9d9041150b566d49e087bb99241df52f33) Thanks [@flyon](https://github.com/flyon)! - Narrow the `@_linked/core` peer range to ^2.22.8 (was ^2.10).
+
+  The old range long predated the core versions this package is actually built and
+  tested against; ^2.22.8 states the real requirement. Checked against every
+  package that depends on `@_linked/react` — auth, primitives, rdfs, schema,
+  shape-ui, sioc and the Create Now app — each already declares or resolves core
+  2.22.8, so none of them warns on this.
+
+  Narrowing a peer range is in principle a breaking change; it is released as a
+  minor because no dependent resolves a core below 2.22.8, and a major here would
+  propagate a needless breaking release through all six dependents.
+
 ## 1.5.3
 
 ### Patch Changes
