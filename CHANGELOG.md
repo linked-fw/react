@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.5.3
+
+### Patch Changes
+
+- [#50](https://github.com/linked-fw/react/pull/50) [`7bf0fec`](https://github.com/linked-fw/react/commit/7bf0fecaa2334c1a8e28edaba621fda7c61816ca) Thanks [@flyon](https://github.com/flyon)! - Build against `@_linked/core@^2.22.8` (was `^2.21.0`), and pin it in the lockfile.
+
+  Patch rather than minor: core is a **devDependency** here, so this changes only what CI
+  compiles and tests against, not what a consumer installs. The `peerDependencies` range
+  is deliberately left at `^2.10` — a peer range states compatibility, and narrowing it
+  would force a core upgrade on every consumer of this package, which is a separate
+  decision from keeping our own build current.
+
 ## 1.5.2
 
 ### Patch Changes
