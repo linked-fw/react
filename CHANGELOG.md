@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.6.1
+
+### Patch Changes
+
+- [#55](https://github.com/linked-fw/react/pull/55) [`15d3a37`](https://github.com/linked-fw/react/commit/15d3a3796edac7fed655b80b194a6f3e491d8af9) Thanks [@flyon](https://github.com/flyon)! - Sourcemaps now embed their TypeScript source, so consumers no longer see 'points to missing source files' warnings.
+
 ## 1.6.0
 
 ### Minor Changes
