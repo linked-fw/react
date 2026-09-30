@@ -63,7 +63,7 @@
   },
   "devDependencies": {
     "@_linked/core": "^2.22.8",
-    "@changesets/changelog-github": "^0.5.2",
+    "@changesets/changelog-github": "^0.7.0",
     "@changesets/cli": "^3.0.0",
     "@jest/globals": "^29.7.0",
     "@testing-library/dom": "^10.4.2",
