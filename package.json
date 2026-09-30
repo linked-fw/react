@@ -21,6 +21,10 @@
       "types": "./lib/esm/index.d.ts",
       "import": "./lib/esm/index.js"
     },
+    "./*.js": {
+      "types": "./lib/esm/*.d.ts",
+      "import": "./lib/esm/*.js"
+    },
     "./*": {
       "types": "./lib/esm/*.d.ts",
       "import": "./lib/esm/*.js"
