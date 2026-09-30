@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.6.2
+
+### Patch Changes
+
+- [#68](https://github.com/linked-fw/react/pull/68) [`21149f0`](https://github.com/linked-fw/react/commit/21149f0a0a84e17a990dac9394da55458261e205) Thanks [@flyon](https://github.com/flyon)! - Subpath imports written with a `.js` extension (`@_linked/react/<path>.js`) now resolve. The exports map had no `./*.js` entry, so `./*` turned them into `<path>.js.js` and Node, Vite and TypeScript (node16/bundler) all failed to find them. This matches the exports map of the other Linked packages.
+
 ## 1.6.1
 
 ### Patch Changes
