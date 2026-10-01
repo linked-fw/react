@@ -8,3 +8,6 @@ yarn.lock
 # (.js alone is NOT ignored — some packages have legit .js test helpers/config.)
 src/**/*.d.ts
 src/**/*.js.map
+packages/
+.claude/
+.agents/
