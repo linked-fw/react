@@ -69,7 +69,7 @@
     "@_linked/core": "^2.22.8",
     "@changesets/changelog-github": "^1.0.0",
     "@changesets/cli": "^3.0.0",
-    "@jest/globals": "^29.7.0",
+    "@jest/globals": "^30.0.0",
     "@testing-library/dom": "^10.4.2",
     "@testing-library/react": "^16.3.3",
     "@types/jest": "^30.0.0",
