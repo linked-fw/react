@@ -478,6 +478,68 @@ describe('React component behavior', () => {
   });
 });
 
+describe('QResult completeness is judged by result keys, not property labels', () => {
+  test('a computed-only projection with of={{id}} runs the query', async () => {
+    store.setSingleResult({id: 'urn:test:gap:p1', title: 'Semmy says hi'} as any);
+
+    const Card = linkedComponent(
+      Person.select((p) => ({title: p.name.concat(' says hi')})),
+      ({title}: any) => <div>{title ?? 'default'}</div>,
+    );
+
+    render(<Card of={{id: 'urn:test:gap:p1'}} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Semmy says hi')).toBeTruthy();
+    });
+    expect(store.calls.length).toBe(1);
+  });
+
+  test('a renamed key: of holding the result key renders without fetching', async () => {
+    const Card = linkedComponent(
+      Person.select((p) => ({title: p.name})),
+      ({title}: any) => <div>{title}</div>,
+    );
+
+    render(<Card of={{id: 'urn:test:gap:p1', title: 'Preloaded'} as any} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Preloaded')).toBeTruthy();
+    });
+    expect(store.calls.length).toBe(0);
+  });
+
+  test('a renamed key: of holding only the property label fetches', async () => {
+    store.setSingleResult({id: 'urn:test:gap:p1', title: 'Fetched'} as any);
+
+    const Card = linkedComponent(
+      Person.select((p) => ({title: p.name})),
+      ({title}: any) => <div>{title}</div>,
+    );
+
+    render(<Card of={{id: 'urn:test:gap:p1', name: 'Wrong key'} as any} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Fetched')).toBeTruthy();
+    });
+    expect(store.calls.length).toBe(1);
+  });
+
+  test('a plain property projection holding its label renders without fetching', async () => {
+    const Card = linkedComponent(
+      Person.select((p) => p.name),
+      ({name}) => <div>{name}</div>,
+    );
+
+    render(<Card of={{id: 'urn:test:gap:p1', name: 'Preloaded'} as any} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Preloaded')).toBeTruthy();
+    });
+    expect(store.calls.length).toBe(0);
+  });
+});
+
 describe('React utility helpers', () => {
   test('useStyles merges class names and styles, filtering falsy values', () => {
     const result = useStyles(

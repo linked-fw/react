@@ -821,8 +821,24 @@ function isValidQResult(of: any, query: QueryBuilder<any>): boolean {
   if (typeof (of as QResult<any>)?.id !== 'string') return false;
   const fieldSet = query.fields();
   if (!fieldSet) return false;
-  const labels = fieldSet.labels();
-  return labels.every((label) => label in of);
+  return resultKeys(fieldSet).every((key) => key !== undefined && key in of);
+}
+
+/**
+ * The keys the query's result objects carry, one per FieldSet entry.
+ *
+ * Mirrors how core names result keys (IRDesugar): when every entry has a
+ * `customKey` (the object form `{title: p.jobTitle}` / `{title: Expr.concat(..)}`)
+ * that key is the result key; otherwise it is the property's terminal label.
+ * An entry with no derivable key (e.g. a bare computed expression) yields
+ * `undefined`, so the caller treats `of` as not-yet-loaded and runs the query.
+ */
+function resultKeys(fieldSet: FieldSet<any>): Array<string | undefined> {
+  const entries = fieldSet.entries;
+  const allCustom = entries.length > 0 && entries.every((e) => e.customKey);
+  return entries.map((e) =>
+    allCustom ? e.customKey : e.path.terminal?.label,
+  );
 }
 
 /**
