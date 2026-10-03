@@ -10,6 +10,7 @@ import {ShapeSet} from '@_linked/core/collections/ShapeSet';
 import {getSourceFromInputProps} from '../utils/LinkedComponent.js';
 import {useStyles} from '../utils/Hooks.js';
 import {LinkedComponentClass} from '../utils/LinkedComponentClass.js';
+import {Expr} from '@_linked/core';
 
 type Deferred<T> = {
   promise: Promise<T>;
@@ -483,7 +484,7 @@ describe('QResult completeness is judged by result keys, not property labels', (
     store.setSingleResult({id: 'urn:test:gap:p1', title: 'Semmy says hi'} as any);
 
     const Card = linkedComponent(
-      Person.select((p) => ({title: p.name.concat(' says hi')})),
+      Person.select((p) => ({title: Expr.concat((p.name as any).defaultTo(''), ' says hi')})),
       ({title}: any) => <div>{title ?? 'default'}</div>,
     );
 
