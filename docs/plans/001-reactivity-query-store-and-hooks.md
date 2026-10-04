@@ -42,9 +42,9 @@ Blocking planning (B) or non-blocking (N).
 
 | # | Item | Kind | Status |
 |---|---|---|---|
-| 1 | Store scope: `globalThis` singleton vs React `Provider` vs both | decision B | open |
-| 2 | Mutation observation install: auto on first hook use vs explicit `enableReactivity()`; lazy re-wrap after `setDefaultDataset` | decision B | open |
-| 3 | Query identity / cache key: canonical JSON memoized per builder; inline builders in hooks; pending-context keys | decision B | open |
+| 1 | Store scope: `globalThis` singleton vs React `Provider` vs both | decision B | accepted: 1C |
+| 2 | Mutation observation: react-side dispatch wrapper vs a small core dispatch event | decision B | re-explored (core change on the table) |
+| 3 | Query identity: two-track model (template + instance params), named templates, what the store holds | decision B | re-explored |
 | 4 | Hook API surface: names, return shape, `of` argument, options, set paging controller | decision B | open |
 | 5 | HOC compatibility contract and refetch UX: stale-while-revalidate vs loader; `null` result handling; `_refresh` naming | decision B | open |
 | 6 | Invalidation policy: default precision, per-query override, timing, batching, in-flight race | decision B | open |
@@ -57,4 +57,10 @@ Blocking planning (B) or non-blocking (N).
 
 ## Accepted decisions
 
-_(filled in as explore batches are accepted)_
+### D1 — Store scope: global default, provider override later (1C)
+
+The store is a class instance. The default instance lives on `globalThis` (same rule core uses for dispatch, routing and context in `runtime-instances.md`), and `resetQueryStore()` exists for tests. A `<LinkedStoreProvider store=…>` that overrides the store for a subtree is designed for but not shipped in phase 1; the hook reads `useContext(StoreContext) ?? globalStore`. Rejected: provider-only (mandatory wiring, breaks module-level HOCs rendered outside a provider, partial isolation anyway because core's state is global).
+
+### Proposed (not yet accepted): two-track model
+
+Templates (subject-less queries, deduplicated by canonical JSON, optional name) teach the store which property IRIs and shapes to watch. Instances (a template applied to params: subject/subjects, limit/offset, resolved context, later variables) hold data, status, subscribers and the set of node ids their result mentions. Indexes: `templatesByProp`, `templatesByShape`, `instancesById`. See chat batch 2 for the options discussed.
