@@ -45,10 +45,10 @@ Blocking planning (B) or non-blocking (N).
 | 1 | Store scope: `globalThis` singleton vs React `Provider` vs both | decision B | accepted: 1C |
 | 2 | Mutation observation: react-side dispatch wrapper vs a small core dispatch event | decision B | accepted: 2C |
 | 3 | Query identity: two-track model (template + instance params), named templates, what the store holds | decision B | accepted: 3B |
-| 4 | Hook API surface: names, return shape, `of` argument, options, set paging controller | decision B | open |
-| 5 | HOC compatibility contract and refetch UX: stale-while-revalidate vs loader; `null` result handling; `_refresh` naming | decision B | open |
+| 4 | Hook API surface: names, return shape, `of` argument, options, set paging controller | decision B | accepted: 4B |
+| 5 | HOC compatibility contract and refetch UX: stale-while-revalidate vs loader; `null` result handling; `_refresh` naming | decision B | accepted: 5B |
 | 6 | Invalidation policy: default precision, per-query override, timing, batching, in-flight race | decision B | accepted: 6B |
-| 7 | Query-context reactivity and preloaded (`of` QResult) children | decision B | open |
+| 7 | Query-context reactivity and preloaded (`of` QResult) children | decision B | accepted: 7A (children: via parent, see D5) |
 | 8 | Release: minor vs major; peer-dep floor; React Native entry parity | decision N | open |
 | 9 | File layout, exports, and test strategy per phase | decision N | open |
 | 10 | Optimistic patch layer design (phase 4) | research N | deferred to its phase |
@@ -89,3 +89,30 @@ Rejected: one flat key per fully-applied query (no template level, no property i
 - Local optimistic patching stays in phase 4.
 
 Rejected: shape-level only (editing one name refetches every list); patching now (pulls phase 4 into phase 2 for a latency-only gain).
+
+### D4 — Hooks: `useLinked` and `useLinkedSet`, mirroring the HOC pair (4B)
+
+```ts
+const {data, loading, refreshing, error, notFound, refresh, patch} =
+  useLinked(query, of?, {enabled?, reactive?, name?});
+const {data, loading, refreshing, error, refresh, patch, page} =
+  useLinkedSet(query, of?, {enabled?, reactive?, name?});
+// page: {next(), previous(), set(i), setLimit(n), index, limit}
+```
+
+`of` accepts `{id}`, a Shape, a QResult; for sets a ShapeSet or QResult[]. It is optional when the builder is already bound (`.for(id)` / `.for(getQueryContext(...))`). `loading` = no data yet; `refreshing` = data on screen, fetch in flight. The HOCs become thin wrappers over these hooks. Later extension (not in scope): `useLinked` accepting a `CountBuilder`/`AskBuilder` — a count is a template with an aggregation and no projection. Rejected: one overloaded hook (ambiguous cardinality, hairy types); core-verb hooks without `of` (drops the `of` ergonomics, needs a core accessor for the subject-less template).
+
+### D5 — HOC contract: stale-while-revalidate, additive props, minor release (5B)
+
+- Invalidation refetches and `_refresh()` keep current data on screen; `_refreshing: boolean` is injected next to `_refresh`.
+- An `of` change renders cached data immediately when the store has that instance, otherwise the loader.
+- A `null` single result keeps rendering the component with empty props (today's behaviour); a `notFoundElement` option, resolved like `loader`, can replace it.
+- Cached instances are not revalidated on mount (invalidation is the freshness mechanism); a `refetchOnMount` option may come later.
+- Preloaded children (`of` = QResult containing the child's labels) register no instance; they are reactive through the parent, whose template includes their fields (preload sub-selects) and whose ids include theirs. A QResult passed from a non-live source stays static; documented.
+- Everything else (`source`, `linkedData`, `query` paging prop, `loader`, `errorElement`, `'rethrow'`, Native defaults) is unchanged.
+
+Rejected: freezing today's behaviour (no way to show "updating", cached mounts still show a loader); a breaking rename to `refresh`/`data` (coordinated migration across six dependents for cosmetic gain; the underscore prefix avoids colliding with result keys).
+
+### D7 — Query-context reactivity at store level (7A)
+
+The store subscribes once to core's `subscribeQueryContext`. Instance params record the context *name* (not only the resolved id); on change the instance re-keys to the resolved id, fetches, and notifies subscribers; clearing the context returns those instances to pending (loader). `useQueryContext` clears on unmount only if the value it set is still current. Rejected: per-hook subscriptions (one per mounted component, store still needs the name); replacing the global context with a React provider (core's context is used by module-level and non-React code; two sources of truth).
