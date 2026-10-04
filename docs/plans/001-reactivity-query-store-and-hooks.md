@@ -49,8 +49,9 @@ Blocking planning (B) or non-blocking (N).
 | 5 | HOC compatibility contract and refetch UX: stale-while-revalidate vs loader; `null` result handling; `_refresh` naming | decision B | accepted: 5B |
 | 6 | Invalidation policy: default precision, per-query override, timing, batching, in-flight race | decision B | accepted: 6B |
 | 7 | Query-context reactivity and preloaded (`of` QResult) children | decision B | accepted: 7A (children: via parent, see D5) |
-| 8 | Release: minor vs major; peer-dep floor; React Native entry parity | decision N | open |
-| 9 | File layout, exports, and test strategy per phase | decision N | open |
+| 8 | Release: minor vs major; peer-dep floor; React Native entry parity | decision N | accepted: 8B variant (core minor, react 2.0) |
+| 9 | Watch-set extraction lives in core (`queryDependencies`, `mutationEffects`) | decision B | accepted: 9B |
+| 10 | File layout, exports, and test strategy per phase | decision N | accepted: 10B |
 | 10 | Optimistic patch layer design (phase 4) | research N | deferred to its phase |
 | 11 | `exec(target)` bypasses the dispatch; manual `invalidate()` is the only cover | assumption N | accepted gap, document |
 | 12 | Core event `subscribeQueryDispatch` | core change | accepted as part of 2C; sequenced before react phase 2 |
@@ -116,3 +117,40 @@ Rejected: freezing today's behaviour (no way to show "updating", cached mounts s
 ### D7 — Query-context reactivity at store level (7A)
 
 The store subscribes once to core's `subscribeQueryContext`. Instance params record the context *name* (not only the resolved id); on change the instance re-keys to the resolved id, fetches, and notifies subscribers; clearing the context returns those instances to pending (loader). `useQueryContext` clears on unmount only if the value it set is still current. Rejected: per-hook subscriptions (one per mounted component, store still needs the name); replacing the global context with a React provider (core's context is used by module-level and non-React code; two sources of truth).
+
+### D8 — Releases: core minor, react per phase with a 2.0 major at the peer bump (8B variant)
+
+- **Core**: one **minor** release carrying `subscribeQueryDispatch` (D2) and `queryDependencies` / `mutationEffects` (D9). Additive only; never a core major for this work. Merged and published before react phase 2 starts.
+- **React phase 1** (store + hooks internal, HOCs rebuilt, rough edges fixed, `_refreshing`, `notFoundElement`): **1.7.0 minor**, peer `@_linked/core` unchanged.
+- **React phase 2** (reactivity: observation, matcher, `invalidate()`): **2.0.0 major**. The major exists because the peer floor rises to the core minor above; it also legitimises any clean-ups we choose to bundle, though D5 keeps the existing prop contract (`_refresh`, `linkedData`, `query`) intact.
+- **React phase 3** (public hooks, context reactivity, `prepareQueries`, docs): **2.1.0 minor**.
+- Each phase ships its own changeset and PR; every new export is DOM-free and exported from both the root and `/native` entries.
+
+Rejected: one release at the end (phases would not stand alone); a 2.0 that bundles the renames rejected in D5.
+
+### D9 — Watch-set extraction lives in core (9B)
+
+Core gains two small functions beside `lower()`, computed from the lowered IR so every DSL feature is covered once:
+
+```ts
+queryDependencies(query: SelectQuery | CountQuery | AskQuery):
+  {projection: Set<iri>; filter: Set<iri>; shapes: Set<iri>}
+mutationEffects(mutation: CreateQuery | UpdateQuery | DeleteQuery, result?: unknown):
+  {op: 'create'|'update'|'upsert'|'delete'; shape: iri; props: Set<iri>; ids?: Set<string>}
+```
+
+`filter` covers where, scoped relation where, minus and sortBy inputs; `shapes` covers the root scan, traversed value shapes and `as()` casts; `props` for a delete is "all properties of the shape" and `ids` is undefined for `forAll`/`where` modes; the mutation `result` supplies created ids and `added`/`removed` ids. React's matcher consumes these directly. Rejected: react re-parsing DSL-JSON (a second implementation of the wire grammar that drifts); walking `FieldSet` entries and `WherePath` objects (semi-internal structures, duplicated traversal).
+
+### D10 — Layout, exports, tests (10B)
+
+- `src/store/` (no React import, extractable later): `QueryStore.ts`, `templates.ts`, `matcher.ts`, `changes.ts`, `keys.ts`.
+- `src/hooks/`: `useLinked.ts`, `useLinkedSet.ts`, internal store subscription via `useSyncExternalStore`.
+- `src/utils/LinkedComponent.ts` slimmed to HOC wrappers, types, loader/error/notFound resolution.
+- Exports from both entries: `useLinked`, `useLinkedSet`, `invalidate`, `prepareQueries`, `getQueryStore`, `resetQueryStore`, plus a `withQuery(Comp, query)` helper so hook-only components stay preloadable.
+- Tests: React-free `query-store.test.ts` (keys, templates, table-driven matching over Person/Team fixtures in a shared `fixtures.ts`), `reactivity.test.tsx` (team scenario end to end against the mock store), existing behaviour suite kept green as the compatibility gate; add a `typecheck` script to the quick gate. Core: unit tests for the dispatch event and the two helpers, plus golden cases in the existing suites.
+
+Rejected: growing the single file; a separate store package before a second consumer exists.
+
+## Ideation status
+
+All blocking items have accepted decisions (1C 2C 3B 4B 5B 6B 7A 8B-variant 9B 10B). Non-blocking items 10 (optimistic patching) and 11 (`exec(target)`, now covered by D2's instrumentation of `resolveMutationDispatch`) carry into the plan as notes. Ready for plan mode on user confirmation.
