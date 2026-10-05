@@ -63,7 +63,7 @@
     }
   },
   "dependencies": {
-    "react-usestateref": "^1.0.8"
+    "react-usestateref": "^2.0.0"
   },
   "devDependencies": {
     "@_linked/core": "^2.22.8",
