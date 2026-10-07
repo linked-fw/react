@@ -19,7 +19,7 @@ const {
   getPackageShape,
 } = coreLinkedPackage('@_linked/react');
 
-function registerComponent(exportedComponent: Component, shape?: typeof Shape) {
+export function registerComponent(exportedComponent: Component, shape?: typeof Shape) {
   if (!shape) {
     if (!Object.prototype.hasOwnProperty.call(exportedComponent, 'shape')) {
       console.warn(

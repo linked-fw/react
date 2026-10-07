@@ -50,6 +50,7 @@
     "build": "npx rimraf ./lib && npx tsc -p tsconfig-esm.json",
     "compile": "echo '💫 Compiling ESM' && npx tsc -p tsconfig-esm.json",
     "test": "NODE_OPTIONS=--experimental-vm-modules npx jest --config jest.config.cjs",
+    "typecheck": "tsc -p tsconfig-test.json --noEmit",
     "test:integration": "NODE_OPTIONS=--experimental-vm-modules npx jest --config jest.config.cjs react-component-integration --testPathIgnorePatterns=",
     "sync:agents": "node packages/semantu-agents/sync.mjs",
     "setup": "npx semantu-agents"
