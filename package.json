@@ -62,9 +62,6 @@
       "optional": true
     }
   },
-  "dependencies": {
-    "react-usestateref": "^1.0.8"
-  },
   "devDependencies": {
     "@_linked/core": "^2.22.8",
     "@changesets/changelog-github": "^1.0.0",
