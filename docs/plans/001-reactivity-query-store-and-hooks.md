@@ -728,3 +728,63 @@ Quick gate: `npm test`, `npm run typecheck`, `npm run build` exit 0.
 ### Phase R1c — reactivity end to end, context cleanup, docs, changeset (react) — completed
 - Done: `src/tests/reactivity.test.tsx` (local mutation, dataset feed, `publishChange`, `invalidate`, echo folding, `reactive: false`, `useQueryContext` unmount), `useQueryContext` clears on unmount only when its value is still current, root/native exports (`useLinkedQuery`, `useLinkedSetQuery`, `withQuery`, re-exported `invalidate`/`publishChange`/`getLiveQueryStore`), README sections (Reactivity, Hooks, Subscribing outside React), changeset `major`, peer `@_linked/core` → `^2.25.0` (verify against the version core's changeset produces at wrapup).
 - Validation: `npm test` 5 suites / 64 tests; typecheck exit 0; `npm run build` exit 0.
+
+## Review
+
+Validation: core `npm test` 92 suites / 2059 tests (4 Fuseki suites skipped, no Docker); react `npm test` 5 suites / 64 tests, typecheck clean, 7 `act()` warnings. Architecture docs re-read (`runtime-instances.md`, `publishing.md`, `ontologies.md`): no violations; all new process-wide state is `globalThis`-backed, change events are plain data. Pre-existing, now observable: `QueryContext` map/listeners are module-level (two-copy dev runtime).
+
+Findings (medium or higher → iteration 1; lows → final pause):
+
+| # | Sev | Area | Finding |
+|---|---|---|---|
+| 1 | critical | react/core | StrictMode: effect cleanup `close()`s the handle, `useSyncExternalStore` re-subscribes → "This live query has been closed" |
+| 2 | high | core | `unbound` computed on whichever builder registered the template first; bound/unbound builders share a key |
+| 3 | high | core | `bindParams` rebinding `template.builder` leaks its `limit`/`one`/`nullSubject` into other instances |
+| 4 | high | core | Value-blind echo fold drops a second different write to the same node within 50 ms; `invalidate` subject to it |
+| 5 | high | core | A retained handle re-subscribes to a GC'd/dropped instance (orphan, invisible to the matcher) |
+| 6 | high | react | `of` as a Shape instance passes `isCompleteQResult` (`in` hits prototype getters) → never fetches |
+| 7 | high | react | `useQueryContext` with an inline value clears/re-sets on every parent render → re-key + refetch |
+| 8 | medium | react | HOC `enabled` gated on `LinkedStorage.isInitialised()` → never heals when storage lands later |
+| 9 | medium | react | `useLinkedSetQuery(q, [])` fetches every instance; HOC `localPatch`/`selfFetch` survive a subject change |
+| 10 | medium | core | Errors in the dispatch listener's effects computation, feed callbacks, `notifyContextChange` not isolated |
+| 11 | medium | core | `where` on an unset query context: `.live()` throws (`depsOf` eager), and the instance never refetches when the context lands |
+| 12 | medium | core | `exec(target)` + `authoritativeChanges` resolved by routing, not by the target |
+| 13 | medium | core | `_scanDatasets` never unsubscribes feeds of datasets removed from routing; handles registered at construction leak on discarded renders |
+| 14 | medium | react | 7 `act()` warnings; no error-path tests through components; no set-component reactivity test |
+| 15 | medium | docs | Shared `patch`, template-wide `reactive`/`name`, `setLimit` page reset, routing-change reset, GC/`pinned`/options, `close()` semantics, `prepare()`/`templates()`, `ids` doc comment, partial-`of` key forwarding |
+| 16 | medium | react | `export *` leaks `instanceKeyOf`/`useLiveOptions` |
+| 17 | low | both | Cleanups: dead `isNodeReference`, unused `flush`, duplicate `getLiveQueryStore`, duplicate id walkers/drop sequences, `import type`, unreachable `hasPendingContext` branch and misleading comments, dead test expression, `withQuery` empty name, `_refresh` identity, `RowOf` duplicate, comments listed by the reviewers |
+
+Accepted deferrals: `QueryContext` two-copy safety (pre-existing); per-component `reactive` (template-level by design, documented); bulk-mutation precision and result-id over-collection (accepted over-fetch); react devDependency bump to core 2.25.0 (wrapup, after core publishes); `_handles` growth under StrictMode (resolved by fix 1).
+
+## Iteration 1 — Ideation
+
+### Finding 1 of 4 (findings 1, 5, 13): handle lifecycle
+Options: (a) keep `close()` terminal and create handles inside effects; (b) `close()` detaches this handle's listeners and is reopenable, handles register with the store on first `subscribe()` and unregister when they have no listeners, and `subscribe()`/`refresh()` re-resolve the instance when it was dropped. Chosen **(b)**: least React plumbing, fixes StrictMode, orphans and discarded-render leaks at once (maintainability first).
+
+### Finding 2 of 4 (findings 2, 3): instance binding
+Options: (a) rule 4 reads `params` for `unbound` and `depsOf` lowers a subject-stripped builder, keep `bindParams`; (b) additionally store the bound builder on the instance and execute it; context re-key derives `next.builder = inst.builder.for({id})`. Chosen **(b)**: deletes `bindParams` and the `one`/`limit`/`nullSubject` key subtleties.
+
+### Finding 3 of 4 (finding 4): echo folding
+Options: (a) per-instance coalescing only; (b) origin-tagged events (`local` | `feed` | `app` | `manual`), fold only across origins within `echoMs`, never local-onto-local, manual bypasses. Chosen **(b)**: precise and keeps the one-refetch property for echoes.
+
+### Finding 4 of 4 (findings 6–9, 11, 12): hooks and context
+- Preloaded transition moves into `useLinkedQuery`/`useLinkedSetQuery` (state keyed by subject; `refresh()` goes live; `patch()` edits the local copy); the HOC delegates. `isCompleteQResult` rejects Shape instances and checks own properties. `enabled` no longer gated on storage. Empty subject list → `data: []`, no fetch.
+- `useQueryContext`: set-effect keyed on `value?.id ?? value`; cleanup on unmount only, via a ref of the last id set.
+- Where-level context (core): `depsOf` catches `UnresolvedContextError` → provisional deps (`shapes = {root}`, empty predicate sets, recomputed on the next fetch); `splitQuery` lifts every `@ctx` in `where` into `params.contextNames`; `_onContextChange` refetches those instances.
+- `QueryDispatchEvent.target?` set by `resolveMutationDispatch`; `_onDispatch` prefers it.
+- Feeds: unsubscribe datasets no longer routed.
+
+## Iteration 1 — Plan
+
+Core (`src/live/*`, `queryDispatch.ts`, `QueryContext.ts`, `queryDependencies.ts`): `Instance.builder`; `Template.builder` = subject-stripped (`.forAll()` for selects); matcher rule 4 uses `inst.params`; `publish(event, origin)` with origin-aware fold; handle registration on subscribe, reopenable `close()`, `inst.dropped` + re-resolve; `_dropInstance` helper; error isolation; provisional deps + `contextNames`; `target` on dispatch events; feed unsubscribe; docs/comments; tests for every item.
+React (`src/hooks/*`, `LinkedComponent.ts`, `useQueryContext.ts`, `index.ts`, tests, README, changeset): hook-owned preloaded transition; own-property result check; ungated `enabled`; empty subject list; stable `useQueryContext`; named exports; act-wrapped tests; error-path, set-reactivity, StrictMode, Shape-`of` tests; docs.
+
+## Iteration 1 — Phases
+
+### Phase I1 — core store fixes
+Tasks: all core items above. Validation: `live-|change-sources|query-dispatch-subscribe|query-dependencies|mutation-effects` + typecheck; new tests: shared template both orders; limit/one leakage; same-node double write within `echoMs` refetches twice; `invalidate` twice within `echoMs`; re-subscribe after GC and after routing drop; `.live()` without listener is released; `close()` then `subscribe()` reopens; `exec(target)` on an authoritative target; where-context unset → no throw, refetch when set; throwing feed/listener isolated; removed dataset feed unsubscribed.
+### Phase I2 — react fixes
+Tasks: all react items above. Validation: `npm test` + typecheck, zero `act()` warnings; new tests: StrictMode hook + HOC; Shape-instance `of` fetches; `useQueryContext` inline value → one fetch across 5 rerenders; HOC mounted before storage loads after `setDefaultDataset`; `useLinkedSetQuery(q, [])`; preloaded `_refresh()`/`_refresh(patch)` through the hook, reset on subject change; `errorElement`/`'rethrow'`/hook `error` + recovery; set-component reactivity on create.
+### Phase I3 — docs
+README/changeset/guide updates (finding 15), plan log.
