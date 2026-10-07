@@ -1,6 +1,6 @@
 ---
 summary: Active plan — live queries for Linked. Core gains a framework-free live-query store (two-track templates + instances, dependency-matched invalidation) fed by local mutations, optional dataset change feeds and app-published changes, with `query.subscribe()` usable anywhere; @_linked/react 2.0 rebuilds its HOCs on it and exposes hooks. Route 2 from docs/002-reactivity-and-hooks-routes.md, revised 2026-10-05 to cover subscriptions outside React and remote changes.
-status: Tasks
+status: Implementation
 packages: [core, react]
 source: docs/002-reactivity-and-hooks-routes.md
 ---
@@ -681,3 +681,11 @@ Quick gate: `npm test`, `npm run typecheck`, `npm run build` exit 0.
 1. `cd core && npm test` (full) and `cd react && npm test && npm run build`.
 2. Bundle sanity: `node -e` importing only `@_linked/core/queries/QueryBuilder.js` from the built lib must not load `src/live/LiveQueryStore` (assert `globalThis.__linkedLiveQueryStore` is undefined), while importing `@_linked/core` defines it.
 3. Re-read §12 architecture compliance against the diff.
+
+## 16. Implementation log
+
+### Phase C1a — `subscribeQueryDispatch` (core) — completed
+- Commit (core): `a56f01a`.
+- Done: instrumented dispatch in `queryDispatch.ts` (notify at call time with the result promise, `__instrumented` marker, no double wrap), `resolveMutationDispatch` instruments `exec(target)`, listener set on the shared global record, exports in `src/index.ts`, 6 tests in `src/tests/query-dispatch-subscribe.test.ts`.
+- Validation: quick gate (`query-dispatch-subscribe|store-routing|exec-target|count-through-linkedstorage`) 4 suites / 35 tests pass; `npm run typecheck` exit 0; extra sweep of 16 neighbouring suites (434 tests) green.
+- Deviations: none. Note: `Shape.exists()` on a subclass goes through `askQuery`, so the five-kind event order holds as specified.
