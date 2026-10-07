@@ -712,3 +712,19 @@ Quick gate: `npm test`, `npm run typecheck`, `npm run build` exit 0.
 - Commit (core): `f397a2e`.
 - Done: `documentation/live-queries.md`, README "Live queries" section + index link, `.changeset/live-queries.md` (minor).
 - Validation: `npm run build` exit 0; from a scratch package: deep import of `queries/QueryBuilder.js` leaves `globalThis.__linkedLiveQueryStore` undefined, root import defines it and exports `subscribeQueryDispatch`, `queryDependencies`, `mutationEffects`, `publishChange`, `invalidate`, `getLiveQueryStore`; `@_linked/core/live` resolves.
+
+### Phase R1a — hooks (react) — completed
+- Commit (react): `7a3143b`.
+- Done: `src/hooks/{of,useLiveQuery,useLinkedQuery,useLinkedSetQuery,withQuery}.ts`; `registerComponent` exported from `package.ts`; `typecheck` script; `src/tests/fixtures.ts` (Team/Person + `ScriptedDataset` with mutations and a change feed); 15 hook tests. Dev wiring: core built and linked with `npm install --no-save ../core` (package.json untouched).
+- Validation: `npm test` 4 suites / 50 tests; `npm run typecheck` exit 0.
+- Deviation: subjects are bound as `{id}` references (a bare string goes through prefix resolution and rejects `urn:` ids); the same fix landed in core `keys.ts` (`84fd960`).
+
+### Phase R1b — HOCs rebuilt (react) — completed
+- Commit (react): `e6315cc`.
+- Done: both factories on the hooks, contract preserved; `_refreshing`, `notFoundElement` (option, prop, default), `name`/`reactive` options; pinned templates at definition; `getLinkedComponentProps`/`isValidQResult` replaced by `hooks/of.ts`; six new behaviour cases.
+- Validation: `npm test` 4 suites / 56 tests; typecheck exit 0.
+- Deviation (core, `6afaae8`): a storage change (`setDefaultDataset` etc.) now resets the live cache — unwatched instances are dropped, watched ones refetch. Needed so cached rows from a previous dataset are never served; it also makes the existing behaviour suite pass unchanged.
+
+### Phase R1c — reactivity end to end, context cleanup, docs, changeset (react) — completed
+- Done: `src/tests/reactivity.test.tsx` (local mutation, dataset feed, `publishChange`, `invalidate`, echo folding, `reactive: false`, `useQueryContext` unmount), `useQueryContext` clears on unmount only when its value is still current, root/native exports (`useLinkedQuery`, `useLinkedSetQuery`, `withQuery`, re-exported `invalidate`/`publishChange`/`getLiveQueryStore`), README sections (Reactivity, Hooks, Subscribing outside React), changeset `major`, peer `@_linked/core` → `^2.25.0` (verify against the version core's changeset produces at wrapup).
+- Validation: `npm test` 5 suites / 64 tests; typecheck exit 0; `npm run build` exit 0.
