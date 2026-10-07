@@ -1,6 +1,6 @@
 ---
 summary: Active plan — live queries for Linked. Core gains a framework-free live-query store (two-track templates + instances, dependency-matched invalidation) fed by local mutations, optional dataset change feeds and app-published changes, with `query.subscribe()` usable anywhere; @_linked/react 2.0 rebuilds its HOCs on it and exposes hooks. Route 2 from docs/002-reactivity-and-hooks-routes.md, revised 2026-10-05 to cover subscriptions outside React and remote changes.
-status: Implementation
+status: Review
 packages: [core, react]
 source: docs/002-reactivity-and-hooks-routes.md
 ---
