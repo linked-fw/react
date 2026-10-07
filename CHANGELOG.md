@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.6.3
+
+### Patch Changes
+
+- [#76](https://github.com/linked-fw/react/pull/76) [`a91d8ed`](https://github.com/linked-fw/react/commit/a91d8ed9cede3a0fbbcaf6d2c0bad83a0d9935a6) Thanks [@flyon](https://github.com/flyon)! - Remove unused dependency react-usestateref
+
 ## 1.6.2
 
 ### Patch Changes
