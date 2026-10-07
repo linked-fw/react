@@ -1,6 +1,6 @@
 ---
 summary: Active plan — live queries for Linked. Core gains a framework-free live-query store (two-track templates + instances, dependency-matched invalidation) fed by local mutations, optional dataset change feeds and app-published changes, with `query.subscribe()` usable anywhere; @_linked/react 2.0 rebuilds its HOCs on it and exposes hooks. Route 2 from docs/002-reactivity-and-hooks-routes.md, revised 2026-10-05 to cover subscriptions outside React and remote changes.
-status: Plan
+status: Tasks
 packages: [core, react]
 source: docs/002-reactivity-and-hooks-routes.md
 ---
@@ -461,3 +461,223 @@ Phase validation: C1 → §3.4 suites + full core `npm test`; C2 → §5.4 suite
 - Async iteration on `LiveQuery` (`for await`) — deferred; add if a consumer asks.
 - `prepareQueries` naming: core `getLiveQueryStore().prepare()` + `templates()`; react may re-export a `prepareQueries()` convenience.
 - Core version produced by changesets → react peer range `^<that>`.
+
+## 15. Tasks
+
+### Dependency graph
+
+```
+C1a (dispatch event) ──┐
+                        ├─► C2a (store core) ─► C2b (change sources + matcher) ─► C3 (docs, changeset, build) ─► R1a ─► R1b ─► R1c
+C1b (deps helpers) ────┘
+```
+
+- **Parallel group 1**: C1a ∥ C1b (disjoint files; C1b also creates the shared live fixtures).
+- C2a needs C1b's `queryDependencies` only for `Template.deps`; it may stub `deps` as `undefined` until C2b, but with C1b done first no stub is needed.
+- React phases run after C3 and are sequential (they edit the same files). R1a can start against a locally built core (`npm run build` in core, then `npm install --no-save ../core` in react) before the core minor is published.
+- Every phase: one commit per repository, plan doc updated in the same commit (the plan lives in the react repo; core commits reference `react/docs/plans/001`).
+
+Quick gates (run after every phase in that repo):
+- core: `NODE_OPTIONS=--experimental-vm-modules npx jest --config jest.config.cjs --testPathPattern='<phase pattern>'` then `npm run typecheck` (both exit 0). Fuseki `globalSetup` only warns when Docker is absent.
+- react: `npm test` then `npm run typecheck` (added in R1a), both exit 0.
+Full review gate: core `npm test`; react `npm test`; Fuseki suites (`core npm run test:fuseki`, `react npm run test:integration`) only where Docker exists, otherwise reported as skipped.
+
+---
+
+### Phase C1a — `subscribeQueryDispatch` (core)
+
+Files: `src/queries/queryDispatch.ts`, `src/index.ts`, `src/tests/query-dispatch-subscribe.test.ts`.
+
+Tasks:
+1. Add to `queryDispatch.ts`:
+   ```ts
+   export type QueryDispatchEvent = {kind: 'select'|'ask'|'create'|'update'|'delete'; query: unknown; result: Promise<unknown>};
+   export function subscribeQueryDispatch(listener: (e: QueryDispatchEvent) => void): () => void;
+   ```
+   Listener set on `globalThis.__linkedQueryDispatch.listeners` (create the record field if absent so a second module copy shares it).
+2. `instrumentDispatch(d: QueryDispatch): QueryDispatch` — returns an object whose five methods call `d.<m>(q)`, wrap the returned value in `Promise.resolve(...)` as `result`, notify every listener (`for (const l of [...listeners]) try { l({kind, query: q, result}) } catch (e) { console.error('[linked] dispatch listener failed', e) }`), and return `result`. Tag the instrumented object with a non-enumerable `__instrumented = true` so `setQueryDispatch` never double-wraps.
+3. `setQueryDispatch(d)` stores `instrumentDispatch(d)`; `getQueryDispatch()` unchanged. `resolveMutationDispatch(kind, target)` returns `instrumentDispatch(target)` for an explicit target (after the existing method check).
+4. Export `subscribeQueryDispatch` and the `QueryDispatchEvent` type from `src/index.ts` next to `subscribeQueryContext`.
+
+Validation — `src/tests/query-dispatch-subscribe.test.ts` (scripted `IDataset` literal like `store-routing.test.ts`, `LinkedStorage.setDefaultDataset(store)`):
+- `emits select/ask/create/update/delete` — run `RoutedPerson.select()`, `RoutedPerson.exists('…')`, `RoutedPerson.create({})`, `RoutedPerson.update({}).for(id)` (use a shape with one literal property), `RoutedPerson.delete(id)`; assert the listener received five events in order with `kind` matching and `event.query` being the same builder object (`toBe`), and `await event.result` equals what the store returned.
+- `exec(target) is observed` — `RoutedPerson.update({...}).for(id).exec(otherStore)`; assert one `update` event, and `otherStore` was called (not the default).
+- `listener errors are isolated` — a throwing listener plus a second listener; assert the mutation still resolves and the second listener ran; `console.error` spied and called once.
+- `survives setDefaultDataset` — subscribe, call `setDefaultDataset` twice, run a select; assert exactly one event.
+- `unsubscribe stops events` — assert no further events after calling the returned function.
+Quick gate pattern: `query-dispatch-subscribe`. Expected: 5 tests pass; typecheck exit 0.
+
+---
+
+### Phase C1b — dependency helpers + live fixtures (core)
+
+Files: `src/shapes/nodeShapeData.ts` (+`findPropertyShapeById`, moved from `src/sparql/irToAlgebra.ts` with its version-keyed cache; irToAlgebra imports it), `src/queries/queryDependencies.ts` (new; exports `queryDependencies`, `mutationEffects`, types `QueryDependencies`, `MutationEffects`), `src/index.ts`, `src/test-helpers/live-fixtures.ts` (new), `src/tests/query-dependencies.test.ts`, `src/tests/mutation-effects.test.ts`.
+
+Shared fixtures (`live-fixtures.ts`, package name `live-fixtures`, explicit predicate IRIs so `Team.name` and `Person.name` share `http://schema.org/name`):
+```ts
+Person  { name: schema:name (maxCount 1); age: ex:age (xsd:integer, maxCount 1); email: ex:email (maxCount 1);
+          friends: ex:friend → Person; bestFriend: ex:bestFriend → Person (maxCount 1) }
+Employee extends Person { name: schema:name (override, required, maxCount 1); employeeId: ex:employeeId }
+Team    { name: schema:name (maxCount 1); members: ex:member → Person; lead: ex:lead → Person (maxCount 1) }
+```
+Also export `ids` helpers (`T1`, `P1`…) and a `predicate(label)` helper returning the IRI for assertions.
+
+Tasks:
+1. `predicatesOf(propertyShapeId: string, pathExpr?: PathExpr): string[]` — `pathExpr` → `collectPathUris(pathExpr)`; else `findPropertyShapeById(id)` → `getSimplePathId(path) ?? collectPathUris(path)`; unknown id → `[id]` (never empty).
+2. `queryDependencies(query)`: `const ir = lower(query)`; handle `kind` `'select' | 'count' | 'ask'`.
+   - Build `traverseByTo: Map<alias, IRTraversePattern>` from a recursive walk of `root`/`patterns` (join/optional/union/exists/minus children). Record every `shape_scan.shape` into `shapes`; for every traverse add `predicatesOf(property, pathExpr)` to a per-alias predicate list and `findPropertyShapeById(property)?.valueShape?.id` to `shapes`.
+   - `chain(alias)`: walk `traverseByTo` from `alias` back to root, collecting each traversal's predicates.
+   - For each `projection[i].expression`: if `property_expr` → `narrow += predicatesOf(expr) + chain(expr.sourceAlias)`; if `alias_expr` → `narrow += chain(alias)`; otherwise (aggregate/function/binary/logical/not/in/…) → recursively collect every `property_expr` inside into `hidden` together with `chain(sourceAlias)`; `context_property_expr` → `filter`.
+   - `where`, `orderBy[].expression`, `traverse.filter`, `traverse.innerOrderBy[].property`, `minus.filter`, `exists_expr` sub-patterns: every `property_expr`/`context_property_expr` predicate and the chain of its `sourceAlias` → `filter`. A traverse that is part of a `minus` or `exists` pattern → its predicates → `filter`.
+   - Any traverse not reached by the steps above → `hidden`.
+   - `unbound = !(ir.subjectId || ir.subjectIds?.length)` (ask: `!ir.subjectId`).
+3. `mutationEffects(mutation, result?)`: `const ir = lower(mutation)`; map kinds: `create`→`create`, `update`/`update_where`→`update`, `upsert`→`upsert`, `delete`/`delete_all`/`delete_where`→`delete`. `props`: walk `IRNodeData.fields` recursively (`IRNodeData` values, arrays, `IRSetModificationValue.add[]`), `predicatesOf(field.property)`; for delete kinds: predicates of every property shape of the shape (`getPropertyShapes(shape, true)`). `ids`: `update`/`upsert` → `{ir.id}`; `delete` → `ir.ids[].id`; `create` → `ir.data.id` if present; nested `IRNodeData.id`s; plus every `id` string found by walking `result` (objects/arrays, any depth); `update_where`/`delete_all`/`delete_where` → `undefined`. `membership`: `create`/`upsert`/`delete` → `{ir.shape}`; plus `IRNodeData.shape` of every nested node description under `add`/arrays/values for any op.
+4. Export both functions and types from `src/index.ts`.
+
+Validation — `src/tests/query-dependencies.test.ts` (each case asserts the exact sets, using `predicate('name')` etc.):
+- `simple projection` — `Team.select(t => t.name).for(T1)`: narrow {schema:name}, filter ∅, hidden ∅, shapes {Team}, unbound false.
+- `nested path` — `Team.select(t => t.members.name)`: narrow {ex:member, schema:name}, shapes {Team, Person}, unbound true.
+- `size over relation` — `Team.select(t => [t.name, t.members.size()]).for(T1)`: narrow {schema:name}, hidden {ex:member}, shapes {Team, Person}.
+- `computed over traversal` — `Person.select(p => ({shout: p.bestFriend.name.ucase()})).for(P1)`: hidden {ex:bestFriend, schema:name}, narrow ∅.
+- `outer where + sortBy` — `Person.select(p => p.name).where(p => p.age.gte(18)).orderBy(p => p.name)`: narrow {schema:name}, filter {ex:age, schema:name}.
+- `scoped where` — `Team.select(t => t.members.where(m => m.age.gt(30)).name)`: narrow {ex:member, schema:name}, filter {ex:age}.
+- `where on relation` — `Team.select(t => t.name).where(t => t.lead.equals(P1))`: filter {ex:lead}, shapes {Team, Person}.
+- `minus by shape / by property / by condition` — three cases; assert `shapes` includes the minus shape, and property/condition predicates land in `filter`.
+- `as() cast` — `Person.select(p => p.friends.as(Employee).employeeId)`: shapes include Employee.
+- `preload sub-select` — `Person.select(p => [p.name, p.bestFriend.preloadFor({query: Person.select(f => f.email)})])`: narrow includes ex:bestFriend and ex:email.
+- `selectAll` — `Person.selectAll()`: narrow ⊇ {schema:name, ex:age, ex:email, ex:friend, ex:bestFriend}.
+- `count` — `Person.select().where(p => p.age.gte(18)).toCount()`: narrow ∅, filter {ex:age}, unbound true.
+- `ask` — `AskBuilder.of({shapeClass: Person, subject: {id: P1}})`: shapes {Person}, unbound false; shapeless `AskBuilder.forNode(P1)`: all sets empty.
+- `inherited override uses the same predicate` — `Employee.select(e => e.name)` narrow equals `Person.select(p => p.name)` narrow.
+- `structured path` — a fixture property with `path: {inv: ex:member}` on Person (`teams`): `Person.select(p => p.teams.name)` narrow ⊇ {ex:member}.
+
+`src/tests/mutation-effects.test.ts`:
+- `update literal` — `Person.update({name: 'X'}).for(P1)`: op update, props {schema:name}, ids {P1}, membership ∅.
+- `set add/remove` — `Team.update({members: {add: [{id: P3}], remove: [{id: P2}]}}).for(T1)`: props {ex:member}, ids {T1} before result; with `result = {id: T1, members: {added: [{id: P3}], removed: [{id: P2}]}}` → ids {T1, P3, P2}.
+- `nested create in update` — `Team.update({members: {add: [{name: 'New'}]}}).for(T1)` with result containing the new row: props {ex:member, schema:name}, membership {Person}, ids include the new id.
+- `create` — `Person.create({name: 'A', friends: [{id: P2}]})` with result `{id: Pn, …}`: op create, props {schema:name, ex:friend}, membership {Person}, ids {Pn, P2}.
+- `upsert` — `Person.upsert({name: 'A'}).for(P1)`: op upsert, membership {Person}, ids {P1}.
+- `delete ids` — `Person.delete([{id: P1}, {id: P2}])`: op delete, ids {P1, P2}, membership {Person}, props ⊇ {schema:name, ex:age}.
+- `delete all / where`, `update forAll / where` — `ids` undefined; props as written.
+- `upsert via JSON round trip` — `mutationEffects(fromJSON(builder.toJSON()))` equals `mutationEffects(builder)` for the update and create cases.
+Quick gate pattern: `query-dependencies|mutation-effects` plus the existing SPARQL golden suites (`sparql-select-golden|ir-select-golden`) to prove the `findPropertyShapeById` move is behaviour-neutral; typecheck exit 0.
+
+---
+
+### Phase C2a — `LiveQueryStore`, `LiveQuery` handle, `.live()` (core)
+
+Files: `src/live/registry.ts` (new, tiny: `getLiveQueryStore()` reading `globalThis.__linkedLiveQueryStore`, throws the "not loaded" error), `src/live/keys.ts`, `src/live/LiveQueryStore.ts`, `src/live.ts` (barrel for `@_linked/core/live`, re-exports + side-effect import of the store), `src/index.ts` (`import './live.js'` + re-exports), `src/queries/QueryBuilder.ts`, `src/queries/CountBuilder.ts`, `src/queries/AskBuilder.ts` (`.live()` each, importing only `registry.ts`), `src/tests/live-query-store.test.ts`.
+
+Contracts: §4.1 (`InstanceParams`, `Template`, `LiveState`, `Instance`, `LiveQuery`, `LiveQueryStore`), §4.2 behaviour. In this phase `Template.deps` is computed via `queryDependencies` but not yet consumed (no matcher).
+
+Tasks:
+1. `keys.ts`: `splitQuery(SelectBuilder)` → `{templateJson, params}` from `toJSON()`: strip `subject`, `subjects`, `limit`, `offset`, `one`; `params.subject` = string subject; `isContextRefJSON(subject)` → `params.contextName = subject['@ctx']` and `params.subject = resolveContextId(name, false) ?? undefined`. Count/ask builders: template = full `toJSON()`, params `{}`. `templateKey` = `JSON.stringify(templateJson)` memoized in a `WeakMap<object, string>`; `paramsKey` = `JSON.stringify` of params with sorted keys.
+2. `LiveQueryStore`: `template()`, `subscribe()`, `invalidate()` (stub throwing "implemented in C2b" is NOT acceptable — implement the `{id}`/builder/template forms here; the shape form lands in C2b), `templates()`, `prepare()`, `reset()`, and the internal fetch: bind params (`builder.for(subject)` / `.forAll(subjects)` / `.limit` / `.offset`; count/ask: run as is), `await getQueryDispatch().selectQuery(bound)` / `askQuery`; for counts call `resolveCount`; for asks `resolveExistence`. `seq` guard; `staleWhileInflight`; structural sharing via a small deep-equal; `ids` collected from the result tree; GC timer 30 s (configurable via `store.options.gcMs`); `LinkedStorage.isInitialised()` guard → state `pending`.
+3. `LiveQuery` handle: `state` getter, `subscribe(cb)` (adds listener; calls nothing synchronously), `then(onF, onR)` (resolves with the first `success` data, rejects on first `error`; if already success resolve immediately), `refresh()`, `patch()`, `close()` (removes all listeners created through this handle and unsubscribes).
+4. `.live(listenerOrOpts?, opts?)` on the three builders: `getLiveQueryStore().subscribe(this, listener, opts)`.
+5. Context re-key: store subscribes to `subscribeQueryContext`; instances with `params.contextName === name` → compute new params, move listeners to the new instance (get-or-create), fetch; cleared → `pending`.
+6. Registration: `LiveQueryStore.ts` ends with `globalThis.__linkedLiveQueryStore ??= new LiveQueryStore()`; `src/live.ts` imports it; `src/index.ts` imports `./live.js`. Add `"./live"` to `package.json` `sideEffects` (`**/live.js`, `**/live.ts`) so bundlers keep the registration.
+
+Validation — `src/tests/live-query-store.test.ts` (scripted dataset returning canned rows per subject; `resetLiveQueryStore()` in `beforeEach`; fake timers for GC):
+- `splitQuery strips instance params` — `Team.select(t => t.name).for(T1).limit(5)` → templateJson has no subject/limit; params `{subject: T1, limit: 5}`; `templateKey` identical for `.for(T1)` and `.for(T2)`.
+- `pending context params` — `.for(getQueryContext('user'))` before set → `params.contextName === 'user'`, `subject` undefined; after `setQueryContext('user', {id: P1}, Person)` → subject P1.
+- `first subscriber fetches, second shares` — two `live()` handles on the same bound query: store called once; both receive `success` with the same `data` reference.
+- `thenable resolves with first data` — `await Team.select(t => t.name).for(T1).live()` equals the canned row.
+- `null result → notFound` — subject with no row: `state.notFound === true`, `data === null`.
+- `error keeps previous data` — second fetch rejects: `status 'error'`, `error` set, `data` unchanged.
+- `seq drops stale response` — two `refresh()` calls where the first resolves last: final `data` is the second response.
+- `structural sharing` — refetch with deep-equal rows: listener not called, `data` reference unchanged.
+- `ids collected` — nested result `{id: T1, members: [{id: P1}, {id: P2}]}` → instance ids {T1, P1, P2} (exposed via `store.inspect(instanceKey)` test helper or a `__instances` accessor marked `@internal`).
+- `GC after close` — `close()`, advance 30 s: `store.templates()` no longer lists an unpinned template; pinned template stays.
+- `context re-key` — subscribe with pending context, set the context: fetch happens, listener receives data; clear the context: state back to `pending`.
+- `count and ask live` — `Person.select().toCount().live()` resolves a number; `AskBuilder.forNode(P1).live()` resolves a boolean.
+- `.live() without store registered throws the documented error` — delete `globalThis.__linkedLiveQueryStore`, call `.live()`, assert the message mentions `@_linked/core/live`; restore.
+Quick gate pattern: `live-query-store`; typecheck exit 0.
+
+---
+
+### Phase C2b — change sources + matcher (core)
+
+Files: `src/live/matcher.ts`, `src/live/changes.ts`, `src/live/LiveQueryStore.ts` (wire sources, indexes, `publish`, shape form of `invalidate`), `src/interfaces/IDataset.ts` (`subscribeChanges?`, `authoritativeChanges?`), `src/utils/LinkedStorage.ts` (`onRoutingChanged(listener)` notified from `setDefaultDataset`, `setDatasetForShapes`, `unsetDatasetForShape`), `src/index.ts` + `src/live.ts` (`publishChange`, `invalidate`, `ChangeEvent`), `src/tests/live-matching.test.ts`, `src/tests/change-sources.test.ts`.
+
+Tasks:
+1. `changes.ts`: `normalizeChange(e: ChangeEvent): MutationEffects` (`effects` passthrough; `{mutation, result}` → `mutationEffects(fromJSON(mutation), result)`); `effectsHash(e)` (op|shape|sorted props|sorted ids) for the 50 ms echo dedup.
+2. Indexes on the store: `templatesByProp`, `templatesByShape` (filled when `deps` are computed; `prepare()` fills all), `instancesById` (updated on every result; old ids removed).
+3. `matcher.ts`: `selectInstances(store, effects): Set<Instance>` implementing §5.2 rules 1–5 exactly; shape expansion via `getSuperShapes`/`getSubShapes` on the `NodeShapeData` resolved with `getShapeClass(iri)?.shape`.
+4. `LiveQueryStore.publish(e)`: normalize → dedup by hash within `options.echoMs` (50) → `selectInstances` → for each: if inflight → `staleWhileInflight = true`, else `refresh()`; all scheduled in one microtask.
+5. Wire sources in the store constructor: `subscribeQueryDispatch` (mutation kinds only; `result.then(res => publish({effects: mutationEffects(query, res)}), () => {})`; skip when the dataset that `LinkedStorage` resolves for `query.shape` has `authoritativeChanges`); dataset feeds: `(re)scanDatasets()` on construction and on `onRoutingChanged`, subscribing once per dataset object (`WeakSet`); `invalidate(ShapeConstructor)` → publish a synthetic delete-like effect `{op: 'delete', shape, props: ∅, ids: undefined, membership: {shape}}` so rule 4 applies.
+6. Exports: `publishChange`, `invalidate`, `ChangeEvent` from `src/live.ts` and `src/index.ts`.
+
+Validation — `src/tests/live-matching.test.ts`: build the seven instances of §5.3 against a scripted dataset returning the rows listed there; for **every row of the three tables in §5.3** one test: run the mutation through the dispatch (or `publishChange` with the effects), flush microtasks, assert the set of instances whose fetch count increased equals the expected set and all others are unchanged. Plus: `reactive:false template never refetches`; `invalidate(Person)` refetches L, M, H, C and not N; `invalidate({id: P9})` refetches C only.
+`src/tests/change-sources.test.ts`: `local mutation via dispatch triggers refetch`; `exec(target) mutation triggers refetch`; `dataset subscribeChanges with mutation JSON` (dataset emits `{mutation: builder.toJSON(), result}` → same refetch set as local); `dataset subscribeChanges with effects`; `publishChange from app code`; `echo within 50 ms is one refetch` (local then feed with identical effects: fetch count +1); `authoritativeChanges skips local` (dataset flagged: local mutation causes no refetch; its feed event does); `routing change re-scans datasets` (new default dataset with a feed registered after store creation gets subscribed); `rejected mutation publishes nothing`.
+Quick gate pattern: `live-`; typecheck exit 0.
+
+---
+
+### Phase C3 — core docs, changeset, build (core)
+
+Files: `documentation/live-queries.md` (new), `README.md` (new section "Live queries" with the §1 example, `.live()` handle, change sources, `invalidate`, dataset feed contract, `prepare()`), `.changeset/<name>.md` (`"@_linked/core": minor`), `package.json` `sideEffects`.
+
+Validation: `npm run build` exit 0 and `lib/esm/live.js` exists; `node -e "import('@_linked/core').then(m => console.log(typeof m.subscribeQueryDispatch, typeof m.queryDependencies, typeof m.publishChange))"` from a scratch dir with the built package linked prints `function function function`; `node -e` importing `./lib/esm/queries/QueryBuilder.js` alone and calling `.live()` on a builder throws the documented error (proves the registry path); full `npm test` green (report counts).
+
+---
+
+### Phase R1a — hooks (react)
+
+Prereq: core built (`npm run build` in `../core`), `npm install --no-save ../core` in react so `node_modules/@_linked/core` is the local build.
+
+Files: `package.json` (`"typecheck": "tsc -p tsconfig-test.json --noEmit"`), `src/hooks/useLiveQuery.ts` (internal), `src/hooks/useLinkedQuery.ts`, `src/hooks/useLinkedSetQuery.ts`, `src/hooks/withQuery.ts`, `src/hooks/of.ts` (shared `of` binding: `{id}`/Shape/QResult → subject id; ShapeSet/QResult[] → subjects; `isValidQResult` moved here from `LinkedComponent.ts`), `src/tests/fixtures.ts` (Team/Person/Employee shapes via `linkedShape`, a `ScriptedDataset` implementing select/ask/update/create/delete and `subscribeChanges` with an `emit()` test hook), `src/tests/hooks.test.tsx`.
+
+Contracts: §6.1. `useLiveQuery(live: LiveQuery | null)` = `useSyncExternalStore(live ? live.subscribe : noop, () => live?.state ?? IDLE)`. `useLinkedQuery(query, of?, opts)`: compute `bound = of ? query.for(subjectOf(of)) : query`; `const live = useMemo(() => enabled && !preloaded ? bound.live(opts) : null, [templateKey(query), subjectId, enabled])`; `useEffect(() => () => live?.close(), [live])`; return `{data: preloaded ?? state.data, loading, refreshing, error, notFound, refresh, patch}`. `useLinkedSetQuery` adds `useState` for `limit`/`offset`, binds `.forAll(subjects).limit(l).offset(o)`, returns `page`. `withQuery(Comp, query)` sets `Comp.query`, `Comp.shape` (via `getShapeClass(query.toJSON().shape)`), registers the pinned template and calls `registerComponent`.
+
+Validation — `src/tests/hooks.test.tsx` (jsdom, `LinkedStorage.setDefaultDataset(new ScriptedDataset())`, `resetLiveQueryStore()` per test):
+- `useLinkedQuery loads a subject` — renders `loading` then `data.name === 'Semmy'`.
+- `useLinkedQuery with bound builder and no of` — `useLinkedQuery(Person.select(p => p.name).for(P1))` works.
+- `useLinkedQuery count` — `useLinkedQuery(Team.select().toCount())` → `data === 3`.
+- `preloaded QResult skips fetch` — `of = {id: P1, name: 'X'}`: dataset select count stays 0, `data.name === 'X'`.
+- `enabled:false` — no fetch, `loading false`, `data undefined`.
+- `of change renders cached data immediately` — mount P1, switch to P2 (not cached) → loader state; switch back to P1 → `loading false` synchronously and no extra fetch.
+- `useLinkedSetQuery paging` — `limit(2)`: `page.next()` fetches offset 2; `page.setLimit(3)` resets index 0.
+- `refreshing flag` — call `refresh()`: `refreshing true` while pending, data still present.
+- `withQuery exposes statics` — `withQuery(Comp, q).query === q`, `.shape === Person`, and `FieldSet.extractComponentFieldSet(Comp)` returns labels `['name']`.
+- `unmount closes the live handle` — after unmount and 30 s fake-timer advance, `getLiveQueryStore().templates()` does not list the unpinned template.
+Quick gate: `npm test` (existing 35 + new) and `npm run typecheck` exit 0.
+
+---
+
+### Phase R1b — HOCs rebuilt on the hooks (react)
+
+Files: `src/utils/LinkedComponent.ts` (rewrite the two factories on `useLinkedQuery`/`useLinkedSetQuery`; keep types, `normalizeFactoryArgs`, loader/error resolution, `getSourceFromInputProps`; add `notFoundElement` to options/props/defaults and `name`/`reactive` to options; inject `_refreshing`; register pinned templates at definition), `src/tests/react-component-behavior.test.tsx` (keep all; add cases), `src/package.ts` unchanged.
+
+Validation: all existing behaviour and classnames/query-context tests pass unchanged; new cases in `react-component-behavior.test.tsx`:
+- `_refreshing is true during _refresh() and data stays rendered` — assert old name still in DOM while refreshing, new name after.
+- `notFoundElement renders for a null single result` — definition option and instance prop forms; default (no option) renders the component with empty props as before.
+- `set component defined before storage setup still loads` — define the component, then `setDefaultDataset`, then render; assert rows appear (regression for ideation §3 item 3).
+- `new ShapeSet each parent render does not refetch` — rerender the parent five times with a fresh `ShapeSet` of the same ids; assert dataset select count is 1 (item 4).
+- `fast of change applies the latest response` — deferred responses resolved out of order; assert the DOM shows the latest subject (item 5).
+- `pending context resolves without parent rerender` — component bound to `getQueryContext('user')`, `setQueryContext` later; assert data renders (item 6).
+Quick gate: `npm test`, `npm run typecheck`.
+
+---
+
+### Phase R1c — reactivity end to end, context cleanup, docs, changeset (react)
+
+Files: `src/tests/reactivity.test.tsx`, `src/utils/useQueryContext.ts` (clear on unmount only if current value is the one set), `src/index.ts` (exports), `src/tests/native-barrel.test.tsx` (assert new exports present on the native entry), `README.md` ("Reactivity", "Hooks", "Subscribing outside React", "Remote changes"; update the "Render lifecycle" and TODO sections), `.changeset/<name>.md` (`"@_linked/react": major` with migration notes: peer floor, no API removals), `package.json` (peer `@_linked/core` placeholder `^<C3 version>`; devDependency bump at wrapup).
+
+Validation — `src/tests/reactivity.test.tsx` (TeamHeader + TeamMembers + PersonCard rendered together over `ScriptedDataset`):
+- `adding a member updates header and list, not the card` — `await Team.update({members: {add: [{id: P3}]}}).for({id: T1})`; assert header count text changes and list gains P3; PersonCard fetch count unchanged.
+- `renaming a person updates the list only` — `Person.update({name}).for(P1)`.
+- `remote change via dataset feed` — `dataset.emit({mutation: Team.update(...).for(T1).toJSON(), result})`; same assertions as the first case.
+- `publishChange from app code` — with effects object.
+- `invalidate(Team) refetches team components`.
+- `reactive:false component ignores changes`.
+- `useQueryContext clears on unmount` — mount/unmount a component using it; assert `getQueryContext('user')` is pending afterwards; a second setter with a different value is not cleared by the first's unmount.
+Quick gate: `npm test`, `npm run typecheck`, `npm run build` exit 0.
+
+---
+
+### Integration check (end of R1c, before review)
+
+1. `cd core && npm test` (full) and `cd react && npm test && npm run build`.
+2. Bundle sanity: `node -e` importing only `@_linked/core/queries/QueryBuilder.js` from the built lib must not load `src/live/LiveQueryStore` (assert `globalThis.__linkedLiveQueryStore` is undefined), while importing `@_linked/core` defines it.
+3. Re-read §12 architecture compliance against the diff.
