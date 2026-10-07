@@ -678,8 +678,9 @@ describe('React component behavior on the live-query store', () => {
     );
     render(<Me of={undefined as any} />);
     expect(screen.getByRole('status', {name: 'Loading'})).toBeTruthy();
-    act(() => {
+    await act(async () => {
       setQueryContext('behaviour-user', {id: 'urn:test:gap:p1'}, Person);
+      await new Promise((r) => setTimeout(r, 10));
     });
     await waitFor(() => expect(screen.getByText('Semmy')).toBeTruthy());
     setQueryContext('behaviour-user', null);

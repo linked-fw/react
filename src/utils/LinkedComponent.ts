@@ -1,20 +1,20 @@
-import {
+import type {
   QResult,
   QueryResponseToResultType,
 } from '@_linked/core/queries/SelectQuery';
 import {Shape} from '@_linked/core/shapes/Shape';
 import {QueryBuilder} from '@_linked/core/queries/QueryBuilder';
-import {FieldSet} from '@_linked/core/queries/FieldSet';
+import type {FieldSet} from '@_linked/core/queries/FieldSet';
 import {getLiveQueryStore} from '@_linked/core/live/LiveQueryStore';
 
-import React, {useState} from 'react';
+import React, {useCallback} from 'react';
 import {LinkedStorage} from '@_linked/core/utils/LinkedStorage';
 import {ShapeSet} from '@_linked/core/collections/ShapeSet';
 import {isNodeReferenceValue, NodeReferenceValue} from '@_linked/core/utils/NodeReference';
 import {getShapeClass, hasSuperClass} from '@_linked/core/utils/ShapeClass';
 import {useLinkedQuery} from '../hooks/useLinkedQuery.js';
 import {useLinkedSetQuery} from '../hooks/useLinkedSetQuery.js';
-import {isCompleteQResult, isCompleteSetQResult} from '../hooks/of.js';
+import {isCompleteQResult, ownPropsOf} from '../hooks/of.js';
 
 /**
  * Extract the Shape type parameter from a QueryBuilder.
@@ -327,40 +327,27 @@ export function createLinkedComponentFn(
           } = props as any;
 
           const source = getSourceFromInputProps(props, shapeClass);
-          // A result object that already carries every selected label is a
-          // preloaded child: render it as is, subscribe to nothing.
-          const preloaded = isCompleteQResult(of, actualQuery) ? (of as Record<string, unknown>) : undefined;
-          const [selfFetch, setSelfFetch] = useState(false);
-          const [localPatch, setLocalPatch] = useState<Record<string, unknown> | undefined>(undefined);
-
           // A query bound at definition time (`.for(id)` / `.for(getQueryContext(…))`)
-          // needs no `of`. The subject is read every render, so a pending
-          // context that lands later is picked up.
-          const definitionSubject = actualQuery.toJSON().subject;
-          const hasSubject = !!source || definitionSubject !== undefined;
+          // needs no `of`; a pending context serialises as a `{@ctx}` subject and
+          // the store keeps the instance pending until it lands.
+          const hasSubject = !!source || actualQuery.toJSON().subject !== undefined;
+          const preloaded = isCompleteQResult(of, actualQuery);
           const usingStorage = LinkedStorage.isInitialised();
 
+          // The hook owns the preloaded-child transition: `patch` edits a local
+          // copy, `refresh` goes live, both reset when the subject changes.
           const live = useLinkedQuery(actualQuery, source ? {id: source.id} : undefined, {
-            enabled: usingStorage && hasSubject && (!preloaded || selfFetch),
+            enabled: hasSubject,
             name: templateName || undefined,
             reactive: options.reactive,
           });
-
-          const _refresh = (updatedProps?: any) => {
-            if (updatedProps) {
-              if (preloaded && !selfFetch) setLocalPatch((p) => ({...(p ?? {}), ...updatedProps}));
-              else live.patch(updatedProps);
-            } else if (preloaded && !selfFetch) {
-              setSelfFetch(true); // a preloaded child asked for fresh data: go live
-            } else {
-              void live.refresh();
-            }
-          };
+          const {refresh, patch, data} = live;
+          const _refresh = useCallback(
+            (updatedProps?: any) => (updatedProps ? patch(updatedProps) : void refresh()),
+            [refresh, patch],
+          );
 
           if (!hasSubject && !preloaded) {
-            if (actualQuery.hasPendingContext()) {
-              return resolveLoader(instanceLoader, options.loader);
-            }
             console.warn(
               'This component requires a source to be provided (use the property "of"): ' +
                 functionalComponent.name,
@@ -376,27 +363,26 @@ export function createLinkedComponentFn(
             return resolved;
           }
 
-          const fetched = live.data !== undefined && (!preloaded || selfFetch) ? live.data : undefined;
-          const data: Record<string, unknown> | null | undefined =
-            fetched !== undefined ? (fetched as any) : preloaded ? {...preloaded, ...(localPatch ?? {})} : undefined;
-
           if (data === null) {
             const notFound = resolveNotFoundElement(instanceNotFoundElement, options.notFoundElement);
             if (notFound) return notFound;
           }
 
-          // Keep legacy client-side guard to avoid hydration drift: the server
-          // always renders the loader. Without storage, render with whatever
-          // `of` carried (legacy behaviour).
+          // Keep the legacy client-side guard to avoid hydration drift: the
+          // server always renders the loader. Without storage there is nothing
+          // to wait for: render with whatever `of` carried (legacy behaviour).
           const dataIsLoaded = data !== undefined || !usingStorage;
           if (!dataIsLoaded || typeof window === 'undefined') {
             return resolveLoader(instanceLoader, options.loader);
           }
 
+          // Own keys of `of` are forwarded (a partial result object may carry
+          // more than the query selects); the fetched result wins.
           const linkedProps: any = {
             ...rest,
             source,
-            ...(data ?? {}),
+            ...ownPropsOf(of),
+            ...((data as Record<string, unknown> | null) ?? {}),
             _refresh,
             _refreshing: live.refreshing,
           };
@@ -518,29 +504,17 @@ export function createLinkedSetComponentFn(
         // Validates `of` (throws on anything but a ShapeSet / array) and
         // derives `sources`.
         const {sources} = getLinkedSetComponentProps<ShapeType, any>(props, shapeClass, functionalComponent);
-        const preloaded = isCompleteSetQResult(of, actualQuery) ? (of as Array<Record<string, unknown>>) : undefined;
-        const [selfFetch, setSelfFetch] = useState(false);
         const usingStorage = LinkedStorage.isInitialised();
 
-        const live = useLinkedSetQuery(
-          actualQuery,
-          preloaded && selfFetch ? preloaded.map((row) => ({id: row.id as string})) : of,
-          {
-            enabled: usingStorage && (!preloaded || selfFetch),
-            name: templateName || undefined,
-            reactive: options.reactive,
-          },
+        const live = useLinkedSetQuery(actualQuery, of, {
+          name: templateName || undefined,
+          reactive: options.reactive,
+        });
+        const {refresh, patch, data} = live;
+        const _refresh = useCallback(
+          (updatedProps?: any) => (updatedProps ? patch(updatedProps) : void refresh()),
+          [refresh, patch],
         );
-
-        const _refresh = (updatedProps?: any) => {
-          if (updatedProps) {
-            live.patch(updatedProps);
-          } else if (preloaded && !selfFetch) {
-            setSelfFetch(true);
-          } else {
-            void live.refresh();
-          }
-        };
 
         if (live.error) {
           const resolved = resolveErrorElement(instanceErrorElement, options.errorElement);
@@ -550,7 +524,6 @@ export function createLinkedSetComponentFn(
           return resolved;
         }
 
-        const data = live.data;
         const dataIsLoaded = data !== undefined || !usingStorage;
         if (!dataIsLoaded) {
           return resolveLoader(instanceLoader, options.loader);

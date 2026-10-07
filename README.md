@@ -86,7 +86,7 @@ Definition options (third argument, or keys of the config object): `loader`, `er
 `_refresh` is injected into wrapped `linkedComponent(...)` render functions.
 
 - `_refresh()` reruns the query and rerenders when results return.
-- `_refresh(updatedProps)` merges `updatedProps` into current query result state and rerenders immediately (without fetching first).
+- `_refresh(updatedProps)` merges `updatedProps` into the current result and rerenders immediately (without fetching first). The edit lives in the shared live-query cache, so every component showing the same query and subject sees it; the next refetch overwrites it. On a preloaded child (a complete result passed through `of`) the edit stays local to that component, and `_refresh()` makes it fetch on its own.
 - `updatedProps` is for query result keys only (for example `name`, `active` from your query), not regular additional props passed by parents.
 
 Example use case: optimistic UI after a mutation.
@@ -182,7 +182,7 @@ Change sources, all automatic once set up:
 - **Your own transport** — `publishChange({mutation, result})` or `publishChange({effects})` from application code (re-exported from `@_linked/react`).
 - **Manual** — `invalidate(Team)`, `invalidate({id})`, `invalidate(query)` or `_refresh()`.
 
-A component can opt out with `{reactive: false}`. A result object passed through `of` by a parent that preloaded it (`preloadFor`) does not subscribe on its own; it stays fresh through the parent, whose query includes the child's fields.
+A component can opt out with `{reactive: false}`; this applies to its query template, i.e. every component or hook using that exact query. Components and hooks are safe under React StrictMode. A result object passed through `of` by a parent that preloaded it (`preloadFor`) does not subscribe on its own; it stays fresh through the parent, whose query includes the child's fields.
 
 ## Hooks
 
@@ -211,6 +211,8 @@ function TeamPage({teamId}: {teamId: string}) {
 - Options: `enabled` (default `true`), `reactive`, `name`.
 - `withQuery(Component, query)` sets `Component.query`/`Component.shape`, registers the component and pins its template, so a parent can `preloadFor(Component)` exactly as with a linked component.
 
+`getLiveQueryStore().templates()` lists every registered query template (components register theirs at definition), and `getLiveQueryStore().prepare()` computes their dependencies eagerly — the list of queries an app can fire, for a database to tune for.
+
 Use the components by default — they carry the static `query` that `preloadFor` and the package registry discover — and reach for a hook when you need the flexibility.
 
 ## Subscribing outside React
@@ -223,7 +225,7 @@ When `linkedSetComponent(...)` has a limit (explicit query limit or default limi
 - `query.nextPage()`
 - `query.previousPage()`
 - `query.setPage(pageIndex)`
-- `query.setLimit(limit)`
+- `query.setLimit(limit)` (also moves back to the first page)
 
 There is no public `setOffset(...)` in the React query controller; use `setPage`, `nextPage`, or `previousPage`.
 

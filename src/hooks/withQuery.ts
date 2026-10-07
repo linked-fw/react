@@ -28,7 +28,7 @@ export function withQuery<C extends React.ComponentType<any>>(
   named.shape = shape;
   getLiveQueryStore().template(query, {
     pinned: true,
-    name: options.name ?? component.displayName ?? component.name,
+    name: options.name ?? component.displayName ?? (component.name || undefined),
   });
   registerComponent(named as any, shape);
   return named;

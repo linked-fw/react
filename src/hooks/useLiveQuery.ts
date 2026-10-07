@@ -1,5 +1,8 @@
 import {useCallback, useSyncExternalStore} from 'react';
 import type {LiveQuery, LiveState} from '@_linked/core/live/LiveQueryStore';
+// Registers the live-query store for consumers that import this package
+// through deep paths and never touch the core root barrel.
+import '@_linked/core/live/LiveQueryStore';
 
 const IDLE: LiveState<any> = {status: 'pending', notFound: false, refreshing: false};
 const noopSubscribe = () => () => {};

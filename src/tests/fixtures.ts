@@ -12,6 +12,7 @@ import type {IDataset} from '@_linked/core/interfaces/IDataset';
 import type {ChangeEvent} from '@_linked/core/live/changes';
 import {templateKey} from '@_linked/core/live/keys';
 import {xsd} from '@_linked/core/ontologies/xsd';
+import {isContextRefJSON, resolveContextId, CONTEXT_REF_KEY} from '@_linked/core/queries/ContextRef';
 
 const {linkedShape} = linkedPackage('react-test-fixtures');
 
@@ -108,7 +109,9 @@ export class ScriptedDataset implements IDataset {
     if (this.queue.length) return this.queue.shift()!.promise;
     const json = query.toJSON();
     if (json.op === 'count') return [...this.rows.values()].filter((r) => r.id.includes(shapeHint(json.shape))).length;
-    if (json.subject) return this.project(this.rows.get(json.subject), json);
+    // A real dataset resolves `{@ctx}` references when it lowers the query.
+    const subject = isContextRefJSON(json.subject) ? resolveContextId((json.subject as any)[CONTEXT_REF_KEY], false) : json.subject;
+    if (subject) return this.project(this.rows.get(subject), json);
     const pool = json.subjects
       ? json.subjects.map((s: string) => this.rows.get(s)).filter(Boolean)
       : [...this.rows.values()].filter((r) => r.id.includes(shapeHint(json.shape)));
