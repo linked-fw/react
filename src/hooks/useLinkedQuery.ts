@@ -68,7 +68,8 @@ export function useLinkedQuery<Q extends LiveableQuery>(
   const preloaded = select && isCompleteQResult(of, query) ? (of as SingleResultOf<Q>) : undefined;
   const subjectId = subjectIdOf(of);
 
-  const bound: LiveableQuery = select && subjectId ? (query as QueryBuilder<any, any, any>).for(subjectId) : query;
+  // Bind with an `{id}` reference: a bare string would go through prefix resolution.
+  const bound: LiveableQuery = select && subjectId ? (query as QueryBuilder<any, any, any>).for({id: subjectId}) : query;
   // The instance key is value-based: a new builder object or a new `of` object
   // with the same content maps to the same key, so nothing refetches on rerender.
   const key = enabled && !preloaded ? instanceKeyOf(bound) : null;

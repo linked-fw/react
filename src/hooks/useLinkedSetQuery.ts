@@ -50,7 +50,7 @@ export function useLinkedSetQuery<Q extends QueryBuilder<any, any, any>>(
   const [limit, setLimit] = useState<number>(defaultLimit);
   const [offset, setOffset] = useState<number>(0);
 
-  let bound: QueryBuilder<any, any, any> = subjects ? query.forAll(subjects) : query;
+  let bound: QueryBuilder<any, any, any> = subjects ? query.forAll(subjects.map((id) => ({id}))) : query;
   if (limit) bound = bound.limit(limit);
   if (offset) bound = bound.offset(offset);
 

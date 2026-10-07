@@ -10,6 +10,8 @@ import {ShapeSet} from '@_linked/core/collections/ShapeSet';
 import {getSourceFromInputProps} from '../utils/LinkedComponent.js';
 import {useStyles} from '../utils/Hooks.js';
 import {LinkedComponentClass} from '../utils/LinkedComponentClass.js';
+import {getQueryContext, setQueryContext} from '@_linked/core/queries/QueryContext';
+import {resetLiveQueryStore} from '@_linked/core/live/LiveQueryStore';
 
 type Deferred<T> = {
   promise: Promise<T>;
@@ -116,6 +118,7 @@ class MockStore {
 let store: MockStore;
 
 beforeEach(() => {
+  resetLiveQueryStore();
   store = new MockStore();
   LinkedStorage.setDefaultDataset(store as any);
 });
@@ -548,5 +551,137 @@ describe('React utility helpers', () => {
     render(<TestLinkedClass source={null as any} _refresh={() => {}} ref={ref} />);
 
     expect(ref.current.sourceShape).toBeNull();
+  });
+});
+
+describe('React component behavior on the live-query store', () => {
+  test('_refreshing is true during _refresh() and the current data stays rendered', async () => {
+    const Card = linkedComponent(
+      Person.select((p) => p.name),
+      ({name, _refresh, _refreshing}) => (
+        <div>
+          <span data-testid="name">{name}</span>
+          <span data-testid="refreshing">{String(_refreshing)}</span>
+          <button onClick={() => _refresh()}>refresh</button>
+        </div>
+      ),
+    );
+    render(<Card of={{id: 'urn:test:gap:p1'}} />);
+    await waitFor(() => expect(screen.getByTestId('name').textContent).toBe('Semmy'));
+    expect(screen.getByTestId('refreshing').textContent).toBe('false');
+
+    const deferred = createDeferred<any>();
+    store.queueResult(deferred.promise);
+    fireEvent.click(screen.getByText('refresh'));
+    await waitFor(() => expect(screen.getByTestId('refreshing').textContent).toBe('true'));
+    expect(screen.getByTestId('name').textContent).toBe('Semmy');
+
+    await act(async () => {
+      deferred.resolve({id: 'urn:test:gap:p1', name: 'Semmy 2'});
+      await deferred.promise;
+    });
+    await waitFor(() => expect(screen.getByTestId('name').textContent).toBe('Semmy 2'));
+    expect(screen.getByTestId('refreshing').textContent).toBe('false');
+  });
+
+  test('notFoundElement renders for a null single result; without it the component renders with empty props', async () => {
+    store.queueResult(Promise.resolve(null));
+    const Plain = linkedComponent(
+      Person.select((p) => p.name),
+      ({name}) => <div>name: {name ?? 'none'}</div>,
+    );
+    render(<Plain of={{id: 'urn:test:gap:missing'}} />);
+    await waitFor(() => expect(screen.getByText('name: none')).toBeTruthy());
+
+    store.queueResult(Promise.resolve(null));
+    const WithOption = linkedComponent(
+      Person.select((p) => p.name),
+      ({name}) => <div>{name}</div>,
+      {notFoundElement: <em>nobody here</em>},
+    );
+    render(<WithOption of={{id: 'urn:test:gap:missing2'}} />);
+    await waitFor(() => expect(screen.getByText('nobody here')).toBeTruthy());
+
+    store.queueResult(Promise.resolve(null));
+    render(<Plain of={{id: 'urn:test:gap:missing3'}} notFoundElement={<em>instance says no</em>} />);
+    await waitFor(() => expect(screen.getByText('instance says no')).toBeTruthy());
+  });
+
+  test('a set component defined before storage is configured still loads', async () => {
+    LinkedStorage.setDefaultDataset(null as any);
+    const NameList = linkedSetComponent(
+      Person.select((p) => p.name),
+      ({linkedData = []}) => (
+        <ul>
+          {linkedData.map((item) => (
+            <li key={item.id}>{item.name}</li>
+          ))}
+        </ul>
+      ),
+    );
+    LinkedStorage.setDefaultDataset(store as any);
+    render(<NameList />);
+    await waitFor(() => expect(screen.getByText('Semmy')).toBeTruthy());
+  });
+
+  test('a fresh ShapeSet on every parent render does not refetch', async () => {
+    const NameList = linkedSetComponent(
+      Person.select((p) => p.name),
+      ({linkedData = []}) => (
+        <ul>
+          {linkedData.map((item) => (
+            <li key={item.id}>{item.name}</li>
+          ))}
+        </ul>
+      ),
+    );
+    const Parent = ({n}: {n: number}) => (
+      <div data-n={n}>
+        <NameList of={new ShapeSet([new Person({id: 'urn:test:gap:p1'}), new Person({id: 'urn:test:gap:p2'})])} />
+      </div>
+    );
+    const {rerender} = render(<Parent n={0} />);
+    await waitFor(() => expect(screen.getByText('Semmy')).toBeTruthy());
+    for (let i = 1; i <= 5; i++) rerender(<Parent n={i} />);
+    await waitFor(() => expect(screen.getByText('Moa')).toBeTruthy());
+    expect(store.calls.length).toBe(1);
+  });
+
+  test('a fast of change renders the latest subject even when responses arrive out of order', async () => {
+    const Card = linkedComponent(
+      Person.select((p) => p.name),
+      ({name}) => <div>{name}</div>,
+    );
+    const first = createDeferred<any>();
+    const second = createDeferred<any>();
+    store.queueResult(first.promise);
+    store.queueResult(second.promise);
+    const {rerender} = render(<Card of={{id: 'urn:test:gap:p1'}} />);
+    rerender(<Card of={{id: 'urn:test:gap:p2'}} />);
+    await act(async () => {
+      second.resolve({id: 'urn:test:gap:p2', name: 'Moa'});
+      await second.promise;
+    });
+    await waitFor(() => expect(screen.getByText('Moa')).toBeTruthy());
+    await act(async () => {
+      first.resolve({id: 'urn:test:gap:p1', name: 'Semmy'});
+      await first.promise;
+    });
+    expect(screen.getByText('Moa')).toBeTruthy();
+    expect(screen.queryByText('Semmy')).toBeNull();
+  });
+
+  test('a component bound to a pending query context renders when the context lands, without a parent rerender', async () => {
+    const Me = linkedComponent(
+      Person.select((p) => p.name).for(getQueryContext('behaviour-user')),
+      ({name}) => <div>{name}</div>,
+    );
+    render(<Me of={undefined as any} />);
+    expect(screen.getByRole('status', {name: 'Loading'})).toBeTruthy();
+    act(() => {
+      setQueryContext('behaviour-user', {id: 'urn:test:gap:p1'}, Person);
+    });
+    await waitFor(() => expect(screen.getByText('Semmy')).toBeTruthy());
+    setQueryContext('behaviour-user', null);
   });
 });
