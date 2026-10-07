@@ -17,7 +17,7 @@ await Team.update({members: {add: [{id: personId}]}}).for({id: teamId});
 // → TeamHeader and TeamMembers refetch and rerender; a PersonCard for someone else does not.
 
 // The same machinery, no React:
-const live = Team.select((t) => t.members.name).for({id: teamId}).subscribe((s) => render(s.data));
+const live = Team.select((t) => t.members.name).for({id: teamId}).live((s) => render(s.data));
 ```
 
 Change sources that drive a refetch: **local** mutations (every `await Shape.update/create/delete`, including `exec(target)`), **remote** changes from a dataset that implements the optional change feed, and **app-published** changes (`publishChange`) for transports the app owns. Manual `invalidate()` and `refresh()` remain as levers.
@@ -27,8 +27,8 @@ Phases (each independently shippable, each its own commit and changeset):
 | Phase | Repo | Content | Release |
 |---|---|---|---|
 | C1 | core | `subscribeQueryDispatch`; `queryDependencies`; `mutationEffects` | part of one core **minor** |
-| C2 | core | `LiveQueryStore` (templates, instances, indexes, matcher, context re-keying), `query.subscribe()` / `.live()` on select, count and ask builders, `invalidate`, `publishChange`, `IDataset.subscribeChanges?`, `prepareQueries` | same core minor |
-| R1 | react | HOCs rebuilt on `useLiveQuery` over the core store (behaviour parity + D5 additions), public `useLinked`/`useLinkedSet`/`useLiveQuery`/`withQuery`, context reactivity inherited, README | react **2.0.0** |
+| C2 | core | `LiveQueryStore` (templates, instances, indexes, matcher, context re-keying), `.live()` on select, count and ask builders, `invalidate`, `publishChange`, `IDataset.subscribeChanges?`, `prepareQueries` | same core minor |
+| R1 | react | HOCs rebuilt on the core store (behaviour parity + D5 additions), public `useLinkedQuery`/`useLinkedSetQuery`/`withQuery`, context reactivity inherited, README | react **2.0.0** |
 | later | react | opt-in optimistic patch layer; `LinkedStoreProvider` override; Suspense; SSR hydration; devtools | — |
 
 Out of scope unless pulled in: local replica / normalized graph cache (ideation route 4); renames of the HOC prop contract (rejected in D5). Accepted ideation decisions D1–D10 are reproduced in §11 and remain binding, with the amendments listed in §11.0 (store relocated to core; single react release).
@@ -45,11 +45,11 @@ Out of scope unless pulled in: local replica / normalized graph cache (ideation 
  │   invalidate(Shape | {id} | query) ──────────────────────┘    templates (deps via  │
  │   subscribeQueryContext ────────────────────────────────────►  queryDependencies) │
  │                                                               instances, indexes, │
- │   query.subscribe(listener) / .live()  ◄─────────────────────  matcher, coalescer │
+ │   query.live() / live.subscribe(listener) ◄───────────────────  matcher, coalescer │
  └──────────────────────────────────────────────────────────────────┬────────────────┘
                                                                     │ LiveQuery handle
  ┌──────────────────────────────── @_linked/react ───────────────────▼────────────────┐
- │ hooks/useLiveQuery (useSyncExternalStore) ─► useLinked / useLinkedSet / withQuery  │
+ │ hooks: useLinkedQuery / useLinkedSetQuery / withQuery (useSyncExternalStore)       │
  │ utils/LinkedComponent: linkedComponent / linkedSetComponent (thin, same contract)  │
  └─────────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -151,13 +151,14 @@ export type Instance = {
   listeners: Set<(s: LiveState) => void>;
   gcTimer?: ReturnType<typeof setTimeout>;
 };
-export type LiveQuery<R = unknown> = {
+export type LiveQuery<R = unknown> = PromiseLike<R> & {
   readonly state: LiveState<R>;
+  subscribe(listener: (s: LiveState<R>) => void): () => void;   // Svelte store contract; returns unsubscribe
   refresh(): Promise<void>;
-  patch(partial: Partial<R> | ((cur: R) => R)): void;
-  onChange(listener: (s: LiveState<R>) => void): () => void;
-  unsubscribe(): void;
+  patch(partial: Partial<R> | ((cur: R) => R)): void;            // carried-over `_refresh(patch)`: local edit, no request, overwritten by the next refetch
+  close(): void;                                                  // drop all listeners and release the instance
 };
+// `await live` resolves with the first successful `data` (rejects on the first error); the handle stays live afterwards.
 export class LiveQueryStore {
   template(query, opts?: {name?: string; reactive?: boolean; pinned?: boolean}): Template;
   subscribe<R>(query, listener?: (s: LiveState<R>) => void, opts?): LiveQuery<R>;   // get-or-create instance; first listener starts the fetch
@@ -171,7 +172,18 @@ export function getLiveQueryStore(): LiveQueryStore;   // globalThis.__linkedLiv
 export function resetLiveQueryStore(): void;
 ```
 
-Builder sugar (select, count, ask): `.subscribe(listener?, opts?) => LiveQuery` and `.live(opts?) => LiveQuery` (no initial listener). `Shape.subscribe` is not added; the builder is the entry point.
+Builder sugar on select, count and ask builders — one verb:
+
+```ts
+const live = Team.select((t) => t.members.name).for({id}).live();   // handle
+const first = await live;                                            // first data; handle stays live
+live.subscribe((s) => reindex(s.data));                              // later results; returns unsubscribe
+live.close();
+Team.count().live((s) => setTotal(s.data));                          // shorthand: listener as the argument, no options object
+Team.count().live({name: 'teamTotal', reactive: false});             // options object only when options are needed
+```
+
+**Store resolution (no manual import).** `.live()` calls a tiny `getLiveQueryStore()` registry read on `globalThis`; `src/live/LiveQueryStore.ts` registers itself on import. `@_linked/core`'s barrel (`src/index.ts`, already listed under `sideEffects`) imports the live module, and `@_linked/react` imports it too, so anyone importing core normally or using react never registers anything. Only code that reaches core exclusively through deep paths (`@_linked/core/shapes/Shape`, …) and calls `.live()` sees `Error: live queries are not loaded; import '@_linked/core' or '@_linked/core/live'`. This keeps the IR pipeline out of forwarding-only bundles (report 018) because `QueryBuilder` never imports the store.
 
 ### 4.2 Behaviour
 
@@ -277,14 +289,16 @@ No refetch:
 ### 6.1 Hooks (`src/hooks/`)
 
 ```ts
-export function useLiveQuery<R>(query: SelectBuilder | CountBuilder | AskBuilder | null, opts?: LinkedOptions): LiveState<R> & {refresh; patch};
-export function useLinked<Q>(query: Q, of?: OfInput, options?: LinkedOptions): {data, loading, refreshing, error, notFound, refresh, patch};
-export function useLinkedSet<Q>(query: Q, of?: SetOfInput, options?: LinkedOptions): {data, loading, refreshing, error, refresh, patch, page};
+export function useLinkedQuery<Q>(query: Q, of?: OfInput, options?: LinkedOptions): {data, loading, refreshing, error, notFound, refresh, patch};
+export function useLinkedSetQuery<Q>(query: Q, of?: SetOfInput, options?: LinkedOptions): {data, loading, refreshing, error, refresh, patch, page};
 export function withQuery<C>(component: C, query: SelectBuilder): C & {query; shape};
 export type LinkedOptions = {enabled?: boolean; reactive?: boolean; name?: string};
+// internal: useLiveQuery(live: LiveQuery | null) = useSyncExternalStore(live.subscribe, () => live.state)
 ```
 
-`useLiveQuery` = `useSyncExternalStore(onChange, () => live.state)` over `getLiveQueryStore().subscribe(boundQuery)`; `null`/`enabled: false` → no instance. `useLinked`/`useLinkedSet` bind `of` (`{id}` | Shape | QResult; sets: ShapeSet | QResult[]) onto the template builder, keep paging state in the hook, and skip the instance when `of` is a complete QResult (D5 preloaded children). `loading` = no data yet; `refreshing` = data present, fetch in flight.
+Names parallel `linkedComponent` / `linkedSetComponent` and avoid colliding with React Query's `useQuery`. There is no public `useLiveQuery`: `useLinkedQuery(boundQuery)` with no `of`, including `Team.count()` or an ask builder, already returns the live state. `of` accepts `{id}` | Shape | QResult (sets: ShapeSet | QResult[]) and is optional when the builder is bound. Paging state lives in the hook and feeds params; `page.setLimit` resets `index`. A complete QResult in `of` renders synchronously with no instance (D5 preloaded children). `loading` = no data yet; `refreshing` = data present, fetch in flight.
+
+**When to use a hook instead of the HOC.** The HOC remains the default: it carries the static `query`/`shape` that `preloadFor` and the package registry discover, and it is implemented on the hook, so there is one data path. Reach for the hook when the HOC shape (one component, one template, one `of` subject) does not fit: several queries in one component, a query depending on local state (search input, selected tab), conditional fetching (`enabled`), an inline count or ask, data with no `of` subject (dashboard tiles over unbound lists), or wrapping a third-party component with its own render contract. `withQuery(Comp, query)` gives a hook-based component the same discovery as a HOC (statics + package registration, pinned template). Templates created by bare hooks are GC'd when idle; HOC/`withQuery` templates are pinned and appear in `prepareQueries()`.
 
 ### 6.2 HOCs (`src/utils/LinkedComponent.ts`)
 
@@ -292,13 +306,13 @@ Contract preserved: factory overloads, `of` → `source`/`sources`, result keys 
 
 ### 6.3 Exports and docs
 
-Root and `/native` export `useLiveQuery`, `useLinked`, `useLinkedSet`, `withQuery`; core re-exports used by apps (`invalidate`, `publishChange`, `prepareQueries` = `getLiveQueryStore().prepare()` + `.templates()`) are documented as core imports. README: "Reactivity", "Hooks", "Subscribing outside React", "Remote changes". `useQueryContext` clears on unmount if its value is still current. `package.json`: `typecheck` script; peer `@_linked/core` → `^<C2 version>`; changeset `major`.
+Root and `/native` export `useLinkedQuery`, `useLinkedSetQuery`, `withQuery`; core re-exports used by apps (`invalidate`, `publishChange`, `prepareQueries` = `getLiveQueryStore().prepare()` + `.templates()`) are documented as core imports. README: "Reactivity", "Hooks", "Subscribing outside React", "Remote changes". `useQueryContext` clears on unmount if its value is still current. `package.json`: `typecheck` script; peer `@_linked/core` → `^<C2 version>`; changeset `major`.
 
 ## 7. Files expected to change
 
 **core**: `src/queries/queryDispatch.ts`; `src/queries/queryDependencies.ts` (new); `src/shapes/nodeShapeData.ts` (+`findPropertyShapeById`); `src/sparql/irToAlgebra.ts` (import); `src/live/{LiveQueryStore,keys,matcher,changes}.ts` (new); `src/queries/{QueryBuilder,CountBuilder,AskBuilder}.ts` (`.subscribe()`/`.live()`); `src/interfaces/IDataset.ts` (`subscribeChanges?`, `authoritativeChanges?`); `src/utils/LinkedStorage.ts` (`onRoutingChanged`); `src/index.ts`; tests in §3.4/§5.4; `README.md`; `documentation/live-queries.md` (new); `.changeset/*.md` (minor).
 
-**react**: `src/hooks/{useLiveQuery,useLinked,useLinkedSet,withQuery}.ts` (new); `src/utils/LinkedComponent.ts` (slimmed); `src/utils/useQueryContext.ts`; `src/index.ts`; `src/tests/fixtures.ts` (Team/Person/Employee + scripted dataset with mutation methods and `subscribeChanges`); `src/tests/reactivity.test.tsx` (team scenario + remote change via `publishChange`/dataset feed); `src/tests/react-component-behavior.test.tsx` (kept + `_refreshing`, `notFoundElement`, cached `of` change); `package.json`; `README.md`; `.changeset/*.md` (major).
+**react**: `src/hooks/{useLiveQuery(internal),useLinkedQuery,useLinkedSetQuery,withQuery}.ts` (new); `src/utils/LinkedComponent.ts` (slimmed); `src/utils/useQueryContext.ts`; `src/index.ts`; `src/tests/fixtures.ts` (Team/Person/Employee + scripted dataset with mutation methods and `subscribeChanges`); `src/tests/reactivity.test.tsx` (team scenario + remote change via `publishChange`/dataset feed); `src/tests/react-component-behavior.test.tsx` (kept + `_refreshing`, `notFoundElement`, cached `of` change); `package.json`; `README.md`; `.changeset/*.md` (major).
 
 ## 8. Potential pitfalls
 
@@ -319,7 +333,7 @@ Root and `/native` export `useLiveQuery`, `useLinked`, `useLinkedSet`, `withQuer
 ## 11.0 Amendments (2026-10-05, after plan review)
 
 - **D1 (store scope)**: the store lives in **core** (`src/live/`, `globalThis.__linkedLiveQueryStore`), not react; react's future `LinkedStoreProvider` overrides it per subtree. Reason: subscriptions must work outside React and change sources (dataset feeds) are core concerns.
-- **D4**: adds `useLiveQuery(query)` as the primitive under `useLinked`/`useLinkedSet`; `useLinked` accepts count/ask builders via `useLiveQuery` from day one.
+- **D4**: hooks renamed `useLinkedQuery` / `useLinkedSetQuery` (2026-10-07; parallels the HOC names, avoids React Query's `useQuery`). No public `useLiveQuery`; `useLinkedQuery(boundQuery)` covers counts/asks. `.live()` is the single builder entry point; the handle has `subscribe(cb)` (Svelte store contract), is thenable for the first data, accepts a listener directly as `.live(cb)`, and `patch` carries over `_refresh(patch)`. Store resolution via the core barrel + react import, no manual import (§4.1).
 - **D6**: `QueryDependencies` gains `hidden`; `projection` is renamed `narrow`; delete also refetches bound instances whose shapes include the deleted shape (§5.2). Remote and app-published change sources added (§5.1).
 - **D8**: one core minor (C1 + C2), one react **2.0.0** (R1). The interim react 1.7.0 is dropped because the store no longer lives in react.
 - **D10**: `src/store/` moves to core `src/live/`; react keeps `src/hooks/` and the slimmed HOC file.
@@ -442,8 +456,8 @@ Phase validation: C1 → §3.4 suites + full core `npm test`; C2 → §5.4 suite
 
 ## 14. Remaining unclear areas
 
-- Builder sugar names: `.subscribe(listener)` and `.live()` (plan) vs a single `.live()`; decide in tasks or on review.
 - Echo window (50 ms) and GC grace (30 s) defaults.
 - Whether `authoritativeChanges` should be per-dataset only (plan) or also settable per mutation.
+- Async iteration on `LiveQuery` (`for await`) — deferred; add if a consumer asks.
 - `prepareQueries` naming: core `getLiveQueryStore().prepare()` + `templates()`; react may re-export a `prepareQueries()` convenience.
 - Core version produced by changesets → react peer range `^<that>`.
