@@ -219,7 +219,7 @@ Echo handling: a client's own mutation arrives locally and again as a remote ech
 
 ### 5.2 Matching rules (D6, refined)
 
-Given `e: MutationEffects` and a template `T` with `deps`:
+Given `e: MutationEffects` and a template `T` with `deps`. Rules 1–3 are **scoped by shape**: a predicate written on a node of `e.shape` (or of a shape in `e.membership`) can only change nodes of that shape or of a related one in the class hierarchy, so templates whose `deps.shapes` do not intersect that expanded set are skipped (added during implementation; it keeps a `Team` rename away from a `Person` list sorted on the same `schema:name`).
 
 1. **Narrow by id** — `e.ids` known: for each id, `instancesById[id]`; keep instances of templates where `deps.narrow ∩ e.props ≠ ∅`.
 2. **Template-wide** — for each `p ∈ e.props`, every template in `templatesByProp[p]` where `p ∈ deps.filter ∪ deps.hidden`: all its instances.
@@ -250,13 +250,13 @@ Clear hits:
 | Mutation | effects | refetch | rule |
 |---|---|---|---|
 | `Team.update({members:{add:[P3]}}).for(T1)` | props member; ids T1,P3 | H (hidden member, rule 2), M (rule 1) | |
-| `Person.update({name}).for(P1)` | props name; ids P1 | M (1), L (2: sortBy name) | H untouched: T1 only, name is narrow in H |
+| `Person.update({name}).for(P1)` | props name; ids P1 | M (1), L (2: sortBy name), U (2: hidden name) | H untouched: T1 only, name is narrow in H |
 | `Person.update({email}).for(P9)` | props email; ids P9 | C | |
 | `Team.update({lead: P2}).for(T1)` | props lead; ids T1,P2 | F (2) | |
-| `Person.create({name, age: 30})` | membership Person; ids Pnew | L (4) | M, C, H bound → untouched |
-| `Person.delete(P1)` | membership Person; ids P1 | M (ids), L (unbound), H (bound, shapes ∋ Person) | |
-| `Employee.update({name}).for(E1)`, E1 ∈ L | props schema:name; ids E1 | L (2), M if E1 member (1) | predicate identity |
-| `Team.create({name})` | membership Team | N (4) | |
+| `Person.create({name, age: 30})` | membership Person; ids Pnew | L (4), F (4: unbound, traverses Person), U (2: hidden name) | M, C, H bound → untouched |
+| `Person.delete(P1)` | membership Person; ids P1 | every instance of a template touching Person: M, L, H, U, F, C (4) | N untouched (Team only) |
+| `Employee.update({name}).for(E1)`, E1 ∈ L | props schema:name; ids E1 | L (2), U (2), M if E1 member (1) | predicate identity + class hierarchy |
+| `Team.create({name})` | membership Team | N (4), F (4: unbound over Team) | L and U untouched: shape scope is Team, they are Person-only |
 
 Defensive refetches:
 
@@ -264,7 +264,7 @@ Defensive refetches:
 |---|---|---|
 | `Person.update({age: 17}).for(P5)`, P5 ∉ L page | L | filter predicate; membership may change (rule 2) |
 | `Person.update({name}).forAll()` | H, M, L, C, U | ids unknown (rule 3); H over-refetches via shared `schema:name` — shape narrowing for bulk mutations is a later refinement |
-| `Team.update({members:{add:[{name:'New'}]}}).for(T1)` | H, M, L | nested create → membership Person → L (rule 4) |
+| `Team.update({members:{add:[{name:'New'}]}}).for(T1)` | H, M, L, F, U | nested create → membership Person → unbound L and F (rule 4); U via hidden name within the Person scope |
 | `Person.update({name}).for(P7)`, P7 = P1's bestFriend | U | P7's id is not in U's result; `name` is hidden in U (rule 2) |
 | `Person.delete(P1)` | H | bound, but shapes include Person via `members` (rule 4 delete) |
 | `Person.upsert({name}).for(P1)` | L + holders of P1 | may have created → membership (4) + update by id (1) |
@@ -277,7 +277,7 @@ No refetch:
 | `Team.update({members:{add:[P3]}}).for(T1)` | L, C, N, F | no predicate overlap; N membership unchanged |
 | `Person.update({friends:{remove:[P2]}}).for(P1)` | M | M holds P1 but does not read `ex:friend` |
 | `Person.create(...)` | M, C, H | bound; a new node is linked to nothing yet |
-| `Team.update({name}).for(T1)` | N, L | count has no reads; L is over Person |
+| `Team.update({name}).for(T1)` | N, L, U, C | count has no reads; L, U, C are Person-only and the write is on a Team node (shape scope). H, F and M refetch: they mention T1 and read a name on projected nodes |
 | `Document.update({title}).for(D1)` | all | no shared predicate, id or shape |
 
 ### 5.4 Tests (C2)
@@ -689,3 +689,26 @@ Quick gate: `npm test`, `npm run typecheck`, `npm run build` exit 0.
 - Done: instrumented dispatch in `queryDispatch.ts` (notify at call time with the result promise, `__instrumented` marker, no double wrap), `resolveMutationDispatch` instruments `exec(target)`, listener set on the shared global record, exports in `src/index.ts`, 6 tests in `src/tests/query-dispatch-subscribe.test.ts`.
 - Validation: quick gate (`query-dispatch-subscribe|store-routing|exec-target|count-through-linkedstorage`) 4 suites / 35 tests pass; `npm run typecheck` exit 0; extra sweep of 16 neighbouring suites (434 tests) green.
 - Deviations: none. Note: `Shape.exists()` on a subclass goes through `askQuery`, so the five-kind event order holds as specified.
+
+### Phase C1b — dependency helpers + live fixtures (core) — completed
+- Commit (core): `ce87509`.
+- Done: `queryDependencies` / `mutationEffects` in `src/queries/queryDependencies.ts`; `findPropertyShapeById` moved to `shapes/nodeShapeData.ts` (exported, same cache); `src/test-helpers/live-fixtures.ts` (Team/Person/Employee with shared `schema:name`, `Person.teams` as `{inv: ex:member}` using the `[package, 'Team']` forward reference); 19 + 13 tests.
+- Validation: `query-dependencies|mutation-effects|sparql-select-golden|ir-select-golden|sparql-mutation-golden|property-path-sparql` → 6 suites / 278 tests pass; typecheck exit 0 (after the C2a keys fix).
+- Deviations (accepted): (1) a scoped relation `where` contributes its predicates to `filter` but its chain stops at that traversal (the relation itself is `narrow` via the projection); (2) `shapes` also records the *declaring* shape of every property read, because `.as(Shape)` casts leave no trace in the IR; (3) value shapes are recorded per property expression as well as per traverse. All three only make matching more conservative.
+
+### Phase C2a — `LiveQueryStore`, handle, `.live()` (core) — completed
+- Commit (core): `63534cf`.
+- Done: `src/live/{registry,keys,LiveQueryStore}.ts`, `src/live.ts` barrel, `.live()` on select/count/ask builders (via the registry only), root `index.ts` imports `./live.js` and re-exports the API, `package.json` `sideEffects` covers the live entry; 19 tests in `live-query-store.test.ts`.
+- Validation: `live-query-store|query-dependencies|mutation-effects|query-dispatch-subscribe` → 57 tests pass; typecheck exit 0. Full core `npm test` after C2a: 90 suites / 2028 tests pass, 4 Fuseki suites skipped (no Docker).
+- Deviations: `.for(id)` and `.for(ctx)` imply `one`, so `one` is only a param for subject-less `.one()` queries (keeps keys minimal). The handle exposes `key`. `invalidate` by `{id}`/query/template landed here; the shape form in C2b.
+
+### Phase C2b — change sources + matcher (core) — completed
+- Commit (core): `8180076`.
+- Done: `src/live/{changes,matcher}.ts`; store wiring (dispatch listener for mutation kinds, dataset feeds with re-scan on `LinkedStorage.onRoutingChanged`, `publish()` with echo folding, microtask batching, `invalidate(Shape|iri)`); `IDataset.subscribeChanges?` / `authoritativeChanges?`; `publishChange` / `invalidate` free functions; 19 matching tests (every §5.3 row) + 12 change-source tests.
+- Validation: `live-|query-dispatch-subscribe|query-dependencies|mutation-effects|store-routing|count-through-linkedstorage|exec-target` → 8 suites / 105 tests pass; typecheck exit 0.
+- Deviation: shape scoping added to rules 1–3 (see §5.2) after the first run showed the hand-written §5.3 tables had missed shared-predicate consequences; the tables above are corrected to the implemented behaviour.
+
+### Phase C3 — docs, changeset, build (core) — completed
+- Commit (core): `f397a2e`.
+- Done: `documentation/live-queries.md`, README "Live queries" section + index link, `.changeset/live-queries.md` (minor).
+- Validation: `npm run build` exit 0; from a scratch package: deep import of `queries/QueryBuilder.js` leaves `globalThis.__linkedLiveQueryStore` undefined, root import defines it and exports `subscribeQueryDispatch`, `queryDependencies`, `mutationEffects`, `publishChange`, `invalidate`, `getLiveQueryStore`; `@_linked/core/live` resolves.
