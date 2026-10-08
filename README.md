@@ -213,7 +213,15 @@ function TeamPage({teamId}: {teamId: string}) {
 
 `getLiveQueryStore().templates()` lists every registered query template (components register theirs at definition), and `getLiveQueryStore().prepare()` computes their dependencies eagerly — the list of queries an app can fire, for a database to tune for.
 
-Use the components by default — they carry the static `query` that `preloadFor` and the package registry discover — and reach for a hook when you need the flexibility.
+### Hook or component?
+
+Reactivity is the same either way: a mounted hook and a mounted component both register a live instance of their query, and both refetch after a matching change. The difference is **discovery without rendering**, which only a component (or `withQuery`) provides:
+
+- **`preloadFor(Component)`** — a parent reads the child's static `query` and loads its fields in the same request.
+- **The package registry** — the component is registered against its shape.
+- **The template registry** — its query template is pinned at definition, so `templates()` / `prepare()` list it from app start. A bare hook's template is listed only while mounted and is dropped when idle.
+
+Use `linkedComponent` / `linkedSetComponent` by default: one component, one query, one subject through `of`. Reach for a hook when that shape does not fit — several queries in one component, a query that depends on local state, conditional fetching (`enabled`), an inline count or exists check, data with no `of` subject, or wrapping a third-party component that renders on its own terms — and wrap it with `withQuery(Component, query)` if it should still be preloadable and registered.
 
 ## Subscribing outside React
 

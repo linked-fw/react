@@ -66,7 +66,7 @@ withQuery(Component, query, {name?})
 // components: `_refreshing` prop; options/props `notFoundElement`; options `name`, `reactive`
 ```
 
-`loading` means no data yet; `refreshing` means data is present and a fetch is in flight. `of` is `{id}`, a Shape or a result object (sets: ShapeSet or an array) and is optional for a bound builder, a count or an ask. Use the components by default (they carry the static `query` that `preloadFor` and the registry discover); use a hook for several queries per component, state-dependent queries, conditional fetching, inline counts, or data without an `of` subject.
+`loading` means no data yet; `refreshing` means data is present and a fetch is in flight. `of` is `{id}`, a Shape or a result object (sets: ShapeSet or an array) and is optional for a bound builder, a count or an ask. Use the components by default (they carry the static `query` that `preloadFor` and the registry discover); use a hook for several queries per component, state-dependent queries, conditional fetching, inline counts, or data without an `of` subject. Reactivity does not depend on the choice: hooks and components both register live instances. What only a component or `withQuery` adds is discovery without rendering — `preloadFor`, the package registry, and a pinned template in `templates()`/`prepare()`; a bare hook's template exists only while mounted.
 
 ### Behaviour changes worth knowing
 
