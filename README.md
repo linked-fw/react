@@ -174,7 +174,7 @@ await Team.update({members: {add: [{id: personId}]}}).for({id: teamId});
 // → TeamHeader and TeamMembers refetch and rerender. A PersonCard for someone else does not.
 ```
 
-How it works: core keeps a live-query store (see core's [live-queries guide](../core/documentation/live-queries.md)). Every mounted component is a live instance of its query template; the template's dependencies — which predicates it reads, which it filters or sorts on, which shapes it touches — are computed once from the query. Every change is normalised to what it wrote and which nodes it touched, and the store refetches exactly the instances that can have been affected, by node id where it can tell and template-wide where it cannot.
+How it works: core keeps a live-query store (see core's [live-queries guide](https://github.com/linked-fw/core/blob/main/documentation/live-queries.md)). Every mounted component is a live instance of its query template; the template's dependencies — which predicates it reads, which it filters or sorts on, which shapes it touches — are computed once from the query. Every change is normalised to what it wrote and which nodes it touched, and the store refetches exactly the instances that can have been affected, by node id where it can tell and template-wide where it cannot.
 
 Change sources, all automatic once set up:
 - **Local mutations** — every `await Shape.update/create/delete(...)` in the app, `exec(target)` included.
@@ -217,7 +217,7 @@ Use the components by default — they carry the static `query` that `preloadFor
 
 ## Subscribing outside React
 
-The same store works without React: `query.live()` returns a handle with `state`, `subscribe(cb)`, `refresh()`, `patch()` and `close()`, and `await live` resolves with the first result. See core's [live-queries guide](../core/documentation/live-queries.md).
+The same store works without React: `query.live()` returns a handle with `state`, `subscribe(cb)`, `refresh()`, `patch()` and `close()`, and `await live` resolves with the first result. See core's [live-queries guide](https://github.com/linked-fw/core/blob/main/documentation/live-queries.md).
 
 ## Linked set pagination API
 
