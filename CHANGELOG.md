@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.0.1
+
+### Patch Changes
+
+- [#83](https://github.com/linked-fw/react/pull/83) [`164bf19`](https://github.com/linked-fw/react/commit/164bf19f8f5859935224f7591eeb03f5a97b8891) Thanks [@flyon](https://github.com/flyon)! - The `build` script is now `linked build`, the same build CI and the release workflow already run, so a local build produces the published `lib/`. `@_linked/cli` is added as a dev dependency to provide it, and the `rimraf` dev dependency is removed.
+
 ## 2.0.0
 
 ### Major Changes
