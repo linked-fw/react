@@ -50,10 +50,13 @@
     "build": "npx rimraf ./lib && npx tsc -p tsconfig-esm.json",
     "compile": "echo '💫 Compiling ESM' && npx tsc -p tsconfig-esm.json",
     "test": "NODE_OPTIONS=--experimental-vm-modules npx jest --config jest.config.cjs",
-    "test:integration": "NODE_OPTIONS=--experimental-vm-modules npx jest --config jest.config.cjs react-component-integration --testPathIgnorePatterns="
+    "typecheck": "tsc -p tsconfig-test.json --noEmit",
+    "test:integration": "NODE_OPTIONS=--experimental-vm-modules npx jest --config jest.config.cjs react-component-integration --testPathIgnorePatterns=",
+    "sync:agents": "node packages/semantu-agents/sync.mjs",
+    "setup": "npx semantu-agents"
   },
   "peerDependencies": {
-    "@_linked/core": "^2.22.8",
+    "@_linked/core": "^2.27.0",
     "react": "^18.2.0 || ^19.0.0",
     "react-native": ">=0.76"
   },
@@ -63,7 +66,7 @@
     }
   },
   "devDependencies": {
-    "@_linked/core": "^2.22.8",
+    "@_linked/core": "^2.27.0",
     "@changesets/changelog-github": "^1.0.0",
     "@changesets/cli": "^3.0.0",
     "@jest/globals": "^30.0.0",

@@ -24,6 +24,11 @@ describe('@_linked/react/native', () => {
     expect(root.LinkedComponentDefaults.loader).toBeUndefined();
     expect(root.LinkedComponentDefaults.errorElement).toBeUndefined();
     expect(reactNativeFactory).not.toHaveBeenCalled();
+    // The hooks and the live-query levers are part of the root API.
+    expect(typeof root.useLinkedQuery).toBe('function');
+    expect(typeof root.useLinkedSetQuery).toBe('function');
+    expect(typeof root.invalidate).toBe('function');
+    expect(typeof root.publishChange).toBe('function');
 
     // A query that never resolves keeps the component on the built-in loader.
     LinkedStorage.setDefaultDataset({
@@ -54,6 +59,10 @@ describe('@_linked/react/native', () => {
     const native = await import('@_linked/react/native');
 
     expect(reactNativeFactory).toHaveBeenCalled();
+    // Same API as the root entry.
+    expect(typeof native.useLinkedQuery).toBe('function');
+    expect(typeof native.useLinkedSetQuery).toBe('function');
+    expect(typeof native.invalidate).toBe('function');
 
     const loader = native.LinkedComponentDefaults.loader as React.ReactElement<any>;
     expect(loader.type).toBe('ActivityIndicator');

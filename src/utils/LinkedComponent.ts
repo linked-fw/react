@@ -1,18 +1,20 @@
-import {
+import type {
   QResult,
   QueryResponseToResultType,
 } from '@_linked/core/queries/SelectQuery';
 import {Shape} from '@_linked/core/shapes/Shape';
 import {QueryBuilder} from '@_linked/core/queries/QueryBuilder';
-import {FieldSet} from '@_linked/core/queries/FieldSet';
-import {getQueryDispatch} from '@_linked/core/queries/queryDispatch';
+import type {FieldSet} from '@_linked/core/queries/FieldSet';
+import {getLiveQueryStore} from '@_linked/core/live/LiveQueryStore';
 
-import React, {useCallback, useEffect, useState} from 'react';
+import React, {useCallback} from 'react';
 import {LinkedStorage} from '@_linked/core/utils/LinkedStorage';
-import {DEFAULT_LIMIT} from '@_linked/core/utils/Package';
 import {ShapeSet} from '@_linked/core/collections/ShapeSet';
 import {isNodeReferenceValue, NodeReferenceValue} from '@_linked/core/utils/NodeReference';
 import {getShapeClass, hasSuperClass} from '@_linked/core/utils/ShapeClass';
+import {useLinkedQuery} from '../hooks/useLinkedQuery.js';
+import {useLinkedSetQuery} from '../hooks/useLinkedSetQuery.js';
+import {isCompleteQResult, ownPropsOf} from '../hooks/of.js';
 
 /**
  * Extract the Shape type parameter from a QueryBuilder.
@@ -117,6 +119,12 @@ export type LinkableComponent<P, ShapeType extends Shape = Shape> = React.FC<
 export interface LinkedComponentOptions {
   loader?: React.ReactElement;
   errorElement?: React.ReactElement | 'rethrow';
+  /** Rendered when a single-subject query answers `null`. Without one, the component renders with empty result props. */
+  notFoundElement?: React.ReactElement;
+  /** Registry name of the component's query template (defaults to the component's function name). */
+  name?: string;
+  /** `false` opts the component's query out of automatic refetching. */
+  reactive?: boolean;
 }
 
 /**
@@ -147,9 +155,11 @@ export interface LinkedSetComponentConfig<
 export const LinkedComponentDefaults: {
   loader: React.ReactElement | undefined;
   errorElement: React.ReactElement | 'rethrow' | undefined;
+  notFoundElement: React.ReactElement | undefined;
 } = {
   loader: undefined,
   errorElement: undefined,
+  notFoundElement: undefined,
 };
 export type LinkableSetComponent<
   P,
@@ -174,6 +184,10 @@ export interface LinkedComponentProps<ShapeType extends Shape>
 interface LinkedComponentBaseProps<DataResultType = any>
   extends React.PropsWithChildren {
   linkedData?: DataResultType;
+  /** True while a refetch is in flight and the current data is still rendered. */
+  _refreshing?: boolean;
+  /** Rerun the query (`_refresh()`) or patch the result props locally (`_refresh({...})`). */
+  _refresh?: (updatedProps?: any) => void;
 }
 
 export interface LinkedSetComponentInputProps<ShapeType extends Shape = Shape>
@@ -197,6 +211,9 @@ interface LinkedComponentInputBaseProps extends React.PropsWithChildren {
   // Pass the sentinel `'rethrow'` to skip the internal error boundary and
   // let an external `<ErrorBoundary>` catch the error.
   errorElement?: React.ReactElement | 'rethrow';
+  // Per-instance override of the element shown when a single-subject query
+  // answers `null`.
+  notFoundElement?: React.ReactElement;
 }
 
 export type LinkedSetComponentFactoryFn = <
@@ -288,99 +305,49 @@ export function createLinkedComponentFn(
     const options = normalized.options;
 
     let [shapeClass, actualQuery] = processQuery<ShapeType>(query);
+    const templateName = options.name ?? functionalComponent.name ?? undefined;
+    // Pinned: the template stays registered (and listed by `prepare()`) even
+    // while no instance of this component is mounted.
+    getLiveQueryStore().template(actualQuery, {
+      pinned: true,
+      name: templateName || undefined,
+      reactive: options.reactive,
+    });
 
     let _wrappedComponent: LinkedComponent<CustomProps, ShapeType> =
       React.forwardRef<any, CustomProps & LinkedComponentInputProps<ShapeType>>(
         (props, ref) => {
-          let [queryResult, setQueryResult] = useState<any>(undefined);
-          let [loadingData, setLoadingData] = useState<string>();
-          let [queryError, setQueryError] = useState<Error | undefined>(
-            undefined,
+          // Framework-only input props never reach the wrapped component.
+          const {
+            of,
+            loader: instanceLoader,
+            errorElement: instanceErrorElement,
+            notFoundElement: instanceNotFoundElement,
+            ...rest
+          } = props as any;
+
+          const source = getSourceFromInputProps(props, shapeClass);
+          // A query bound at definition time (`.for(id)` / `.for(getQueryContext(…))`)
+          // needs no `of`; a pending context serialises as a `{@ctx}` subject and
+          // the store keeps the instance pending until it lands.
+          const hasSubject = !!source || actualQuery.toJSON().subject !== undefined;
+          const preloaded = isCompleteQResult(of, actualQuery);
+          const usingStorage = LinkedStorage.isInitialised();
+
+          // The hook owns the preloaded-child transition: `patch` edits a local
+          // copy, `refresh` goes live, both reset when the subject changes.
+          const live = useLinkedQuery(actualQuery, source ? {id: source.id} : undefined, {
+            enabled: hasSubject,
+            name: templateName || undefined,
+            reactive: options.reactive,
+          });
+          const {refresh, patch, data} = live;
+          const _refresh = useCallback(
+            (updatedProps?: any) => (updatedProps ? patch(updatedProps) : void refresh()),
+            [refresh, patch],
           );
 
-          let linkedProps: any = getLinkedComponentProps<
-            ShapeType,
-            CustomProps
-          >(props as any, shapeClass);
-          if (ref) {
-            linkedProps.ref = ref;
-          }
-
-          // Strip framework-only input props before forwarding to the
-          // wrapped component — `loader` / `errorElement` aren't part of
-          // the user's render contract.
-          const instanceLoader = (linkedProps as any).loader as
-            | React.ReactElement
-            | undefined;
-          const instanceErrorElement = (linkedProps as any).errorElement as
-            | React.ReactElement
-            | 'rethrow'
-            | undefined;
-          delete (linkedProps as any).loader;
-          delete (linkedProps as any).errorElement;
-
-          const loadData = () => {
-            const sourceId = linkedProps.source?.id;
-            if (!loadingData || loadingData !== sourceId) {
-              // QueryBuilder is immutable — chain calls produce new instances.
-              let requestQuery = linkedProps.source
-                ? actualQuery.for(linkedProps.source)
-                : actualQuery;
-
-              setLoadingData(sourceId || requestQuery.toJSON().subject);
-              setQueryError(undefined);
-              getQueryDispatch()
-                .selectQuery(requestQuery)
-                .then((result) => {
-                  // Use empty object when result is null/undefined so the
-                  // component renders with default values instead of
-                  // showing the loader forever.
-                  setQueryResult(result ?? {});
-                  setLoadingData(null);
-                })
-                .catch((err) => {
-                  setQueryError(
-                    err instanceof Error ? err : new Error(String(err)),
-                  );
-                  setLoadingData(null);
-                });
-            } else {
-              console.warn(
-                `Already loading data for source ${loadingData}, ignoring request`,
-              );
-            }
-          };
-
-          let sourceIsValidQResult = isValidQResult(props.of, actualQuery);
-
-          if (queryResult || sourceIsValidQResult) {
-            linkedProps = Object.assign(linkedProps, queryResult || props.of);
-          }
-
-          linkedProps._refresh = useCallback(
-            (updatedProps) => {
-              if (updatedProps) {
-                if (queryResult) {
-                  setQueryResult({...queryResult, ...updatedProps});
-                } else if (sourceIsValidQResult) {
-                  setQueryResult({...props.of, ...updatedProps});
-                }
-              } else {
-                loadData();
-              }
-            },
-            [queryResult, props.of],
-          );
-
-          // Resolve the current subject ID — for pending contexts this reads
-          // from the live global Map, so it updates when auth sets the context.
-          const resolvedSubjectId = actualQuery.toJSON().subject;
-
-          if (!linkedProps.source && !resolvedSubjectId) {
-            if (actualQuery.hasPendingContext()) {
-              // Subject will resolve after auth — show loader until then.
-              return resolveLoader(instanceLoader, options.loader);
-            }
+          if (!hasSubject && !preloaded) {
             console.warn(
               'This component requires a source to be provided (use the property "of"): ' +
                 functionalComponent.name,
@@ -388,41 +355,41 @@ export function createLinkedComponentFn(
             return null;
           }
 
-          let usingStorage = LinkedStorage.isInitialised();
-
-          useEffect(() => {
-            if (queryResult) {
-              setQueryResult(undefined);
-            }
-            if (queryError) {
-              setQueryError(undefined);
-            }
-
-            if (usingStorage && !sourceIsValidQResult) {
-              loadData();
-            }
-          }, [linkedProps.source?.id, resolvedSubjectId]);
-
-          if (queryError) {
-            const resolved = resolveErrorElement(
-              instanceErrorElement,
-              options.errorElement,
-            );
+          if (live.error) {
+            const resolved = resolveErrorElement(instanceErrorElement, options.errorElement);
             if (resolved === 'rethrow') {
-              throw queryError;
+              throw live.error;
             }
             return resolved;
           }
 
-          let dataIsLoaded =
-            queryResult || !usingStorage || sourceIsValidQResult;
+          if (data === null) {
+            const notFound = resolveNotFoundElement(instanceNotFoundElement, options.notFoundElement);
+            if (notFound) return notFound;
+          }
 
-          // Keep legacy client-side guard to avoid hydration drift.
-          if (dataIsLoaded && typeof window !== 'undefined') {
-            return React.createElement(functionalComponent, linkedProps);
-          } else {
+          // Keep the legacy client-side guard to avoid hydration drift: the
+          // server always renders the loader. Without storage there is nothing
+          // to wait for: render with whatever `of` carried (legacy behaviour).
+          const dataIsLoaded = data !== undefined || !usingStorage;
+          if (!dataIsLoaded || typeof window === 'undefined') {
             return resolveLoader(instanceLoader, options.loader);
           }
+
+          // Own keys of `of` are forwarded (a partial result object may carry
+          // more than the query selects); the fetched result wins.
+          const linkedProps: any = {
+            ...rest,
+            source,
+            ...ownPropsOf(of),
+            ...((data as Record<string, unknown> | null) ?? {}),
+            _refresh,
+            _refreshing: live.refreshing,
+          };
+          if (ref) {
+            linkedProps.ref = ref;
+          }
+          return React.createElement(functionalComponent, linkedProps);
         },
       ) as any;
 
@@ -514,163 +481,74 @@ export function createLinkedSetComponentFn(
     const options = normalized.options;
 
     let [shapeClass, actualQuery] = processQuery<ShapeType>(query as any, true);
-
-    let usingStorage = LinkedStorage.isInitialised();
+    const templateName = options.name ?? functionalComponent.name ?? undefined;
+    getLiveQueryStore().template(actualQuery, {
+      pinned: true,
+      name: templateName || undefined,
+      reactive: options.reactive,
+    });
 
     let _wrappedComponent: LinkedSetComponent<CustomProps, ShapeType, Res> =
       React.forwardRef<
         any,
         CustomProps & LinkedSetComponentInputProps<ShapeType>
       >((props, ref) => {
-        let [queryResult, setQueryResult] = useState<any>(undefined);
-        let [queryError, setQueryError] = useState<Error | undefined>(
-          undefined,
-        );
-        // Bumped by `_refresh()` to force the load-effect to re-run.
-        let [refreshNonce, setRefreshNonce] = useState<number>(0);
+        const {
+          of,
+          loader: instanceLoader,
+          errorElement: instanceErrorElement,
+          notFoundElement: _ignoredNotFound,
+          ...rest
+        } = props as any;
 
-        let linkedProps = getLinkedSetComponentProps<
-          ShapeType,
-          any
-        >(props, shapeClass, functionalComponent);
+        // Validates `of` (throws on anything but a ShapeSet / array) and
+        // derives `sources`.
+        const {sources} = getLinkedSetComponentProps<ShapeType, any>(props, shapeClass, functionalComponent);
+        const usingStorage = LinkedStorage.isInitialised();
 
-        let defaultLimit = actualQuery.toJSON().limit || DEFAULT_LIMIT;
-        let [limit, setLimit] = useState<number>(defaultLimit);
-        let [offset, setOffset] = useState<number>(0);
-
-        if (ref) {
-          (linkedProps as any).ref = ref;
-        }
-
-        const instanceLoader = (linkedProps as any).loader as
-          | React.ReactElement
-          | undefined;
-        const instanceErrorElement = (linkedProps as any).errorElement as
-          | React.ReactElement
-          | 'rethrow'
-          | undefined;
-        delete (linkedProps as any).loader;
-        delete (linkedProps as any).errorElement;
-
-        let sourceIsValidQResult =
-          Array.isArray(props.of) &&
-          props.of.length > 0 &&
-          typeof (props.of[0] as QResult<any>)?.id === 'string' &&
-          isValidSetQResult(props.of as QResult<any>[], actualQuery);
-
-        if (queryResult || sourceIsValidQResult) {
-          let dataResult;
-          if (queryResult) {
-            dataResult = queryResult;
-          } else {
-            if (limit) {
-              dataResult = (props.of as Array<QResult<any>>).slice(
-                offset || 0,
-                offset + limit,
-              );
-            } else {
-              dataResult = props.of;
-            }
-          }
-          if (query instanceof QueryBuilder) {
-            linkedProps = Object.assign(linkedProps, {
-              linkedData: dataResult,
-            });
-          } else {
-            let key = Object.keys(query)[0];
-            linkedProps[key] = dataResult;
-          }
-        }
-
-        if (limit) {
-          linkedProps.query = {
-            nextPage: () => {
-              setOffset(offset + limit);
-            },
-            previousPage: () => {
-              setOffset(Math.max(0, offset - limit));
-            },
-            setLimit: (newLimit: number) => {
-              setLimit(newLimit);
-            },
-            setPage: (page: number) => {
-              setOffset(page * limit);
-            },
-          } as QueryController;
-        }
-
-        (linkedProps as any)._refresh = useCallback(
-          (updatedProps?: any) => {
-            if (updatedProps) {
-              setQueryResult((current: any) =>
-                current ? {...current, ...updatedProps} : updatedProps,
-              );
-            } else {
-              // Bump the nonce so the load-effect refires even when
-              // props.of / limit / offset are unchanged.
-              setQueryError(undefined);
-              setRefreshNonce((n) => n + 1);
-            }
-          },
-          [],
+        const live = useLinkedSetQuery(actualQuery, of, {
+          name: templateName || undefined,
+          reactive: options.reactive,
+        });
+        const {refresh, patch, data} = live;
+        const _refresh = useCallback(
+          (updatedProps?: any) => (updatedProps ? patch(updatedProps) : void refresh()),
+          [refresh, patch],
         );
 
-        useEffect(() => {
-          if (usingStorage && !sourceIsValidQResult) {
-            // QueryBuilder is immutable — chain calls to set subjects, limit, offset.
-            let requestQuery: QueryBuilder<any> = actualQuery;
-            if (linkedProps.sources) {
-              requestQuery = requestQuery.forAll(
-                Array.from(linkedProps.sources).map((s: Shape) => ({id: s.id})),
-              );
-            }
-            if (limit) {
-              requestQuery = requestQuery.limit(limit);
-            }
-            if (offset) {
-              requestQuery = requestQuery.offset(offset);
-            }
-
-            setQueryError(undefined);
-            getQueryDispatch()
-              .selectQuery(requestQuery)
-              .then((result) => {
-                setQueryResult(result);
-              })
-              .catch((err) => {
-                setQueryError(
-                  err instanceof Error ? err : new Error(String(err)),
-                );
-              });
-          }
-        }, [props.of, limit, offset, refreshNonce]);
-
-        if (queryError) {
-          const resolved = resolveErrorElement(
-            instanceErrorElement,
-            options.errorElement,
-          );
+        if (live.error) {
+          const resolved = resolveErrorElement(instanceErrorElement, options.errorElement);
           if (resolved === 'rethrow') {
-            throw queryError;
+            throw live.error;
           }
           return resolved;
         }
 
-        let dataIsLoaded = queryResult || !usingStorage || sourceIsValidQResult;
-
-        if (
-          typeof queryResult === 'undefined' &&
-          usingStorage &&
-          !sourceIsValidQResult
-        ) {
-          dataIsLoaded = false;
-        }
-
-        if (dataIsLoaded) {
-          return React.createElement(functionalComponent, linkedProps);
-        } else {
+        const dataIsLoaded = data !== undefined || !usingStorage;
+        if (!dataIsLoaded) {
           return resolveLoader(instanceLoader, options.loader);
         }
+
+        const linkedProps: any = {...rest, sources, _refresh, _refreshing: live.refreshing};
+        if (data !== undefined) {
+          if (query instanceof QueryBuilder) {
+            linkedProps.linkedData = data;
+          } else {
+            linkedProps[Object.keys(query)[0]] = data;
+          }
+        }
+        if (live.page.limit) {
+          linkedProps.query = {
+            nextPage: () => live.page.next(),
+            previousPage: () => live.page.previous(),
+            setLimit: (newLimit: number) => live.page.setLimit(newLimit),
+            setPage: (page: number) => live.page.set(page),
+          } as QueryController;
+        }
+        if (ref) {
+          linkedProps.ref = ref;
+        }
+        return React.createElement(functionalComponent, linkedProps);
       }) as any;
 
     _wrappedComponent.original = functionalComponent;
@@ -690,27 +568,6 @@ export function createLinkedSetComponentFn(
   }
 
   return linkedSetComponent;
-}
-
-function getLinkedComponentProps<ShapeType extends Shape, P>(
-  props: LinkedComponentInputProps<ShapeType> & P,
-  shapeClass,
-): Omit<LinkedComponentProps<ShapeType>, '_refresh'> & P {
-  let newProps = {
-    ...props,
-    source: getSourceFromInputProps(props, shapeClass),
-  };
-
-  if (newProps.of) {
-    for (let key of Object.getOwnPropertyNames(newProps.of)) {
-      if (key !== 'shape' && key !== 'id') {
-        newProps[key] = (newProps.of as any)[key];
-      }
-    }
-  }
-
-  delete (newProps as any).of;
-  return newProps;
 }
 
 function processQuery<ShapeType extends Shape>(
@@ -815,24 +672,6 @@ export function getSourceFromInputProps(props, shapeClass) {
 }
 
 /**
- * Check if a QResult has all the fields the query selects.
- */
-function isValidQResult(of: any, query: QueryBuilder<any>): boolean {
-  if (typeof (of as QResult<any>)?.id !== 'string') return false;
-  const fieldSet = query.fields();
-  if (!fieldSet) return false;
-  const labels = fieldSet.labels();
-  return labels.every((label) => label in of);
-}
-
-/**
- * Check if an array of QResults all have the fields the query selects.
- */
-function isValidSetQResult(qResults: QResult<any>[], query: QueryBuilder<any>): boolean {
-  return qResults.every((qResult) => isValidQResult(qResult, query));
-}
-
-/**
  * Built-in loading element used when nothing higher in the resolution chain
  * sets one. Renders an SVG ring; `stroke: currentColor` lets parent context
  * tint it. Style via `.ld-loader` in `@_linked/css/loader.css`.
@@ -925,6 +764,14 @@ function resolveErrorElement(
     LinkedComponentDefaults.errorElement ??
     createDefaultError()
   );
+}
+
+/** Resolves the not-found element; `undefined` means "render the component with empty result props". */
+function resolveNotFoundElement(
+  instanceElement: React.ReactElement | undefined,
+  definitionElement: React.ReactElement | undefined,
+): React.ReactElement | undefined {
+  return instanceElement ?? definitionElement ?? LinkedComponentDefaults.notFoundElement;
 }
 
 /**

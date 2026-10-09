@@ -7,10 +7,12 @@ React bindings for `@_linked/core`.
 > **Query API note.** Queries are built with `Shape.select(...)` which returns a `QueryBuilder`. A `QueryBuilder` is **lazy** — it only fires when you `await` it or pass it through `linkedComponent` / `linkedSetComponent`. The old `Shape.query(...)` builder name is gone; use `.select(...)` everywhere.
 
 This package provides:
-- `linkedComponent(...)`
-- `linkedSetComponent(...)`
+- `linkedComponent(...)` and `linkedSetComponent(...)` — reactive, data-bound components
+- `useLinkedQuery(...)` and `useLinkedSetQuery(...)` — the hooks underneath them
 - `LinkedComponentClass`
-- `useStyles(...)`
+- `useStyles(...)`, `useQueryContext(...)`
+
+Components and hooks are **reactive**: after any mutation — local, reported by a dataset's change feed, or published by your code — every mounted component whose query can have read the changed data refetches and rerenders, and nothing else does. See [Reactivity](#reactivity).
 
 ## Install
 
@@ -74,14 +76,17 @@ Props received by the wrapped component:
 - Query result props: all top-level keys from the query result become direct props (for example `name`).
 - `source`: the resolved shape instance for the input `of` subject.
 - `_refresh(updatedProps?)`: rerun the query (`_refresh()`) or patch local query-result props before rerender (`_refresh({...})`).
+- `_refreshing`: `true` while a refetch is in flight and the current data is still rendered.
 - Custom props: any additional props you pass to the linked component are forwarded as normal.
+
+Definition options (third argument, or keys of the config object): `loader`, `errorElement`, `notFoundElement` (rendered when a single-subject query answers `null`; without it the component renders with empty result props), `name` (registry name of the query template, defaults to the component's function name) and `reactive` (`false` opts the component out of automatic refetching). `loader`, `errorElement` and `notFoundElement` can also be passed per instance, and app-wide through `LinkedComponentDefaults`.
 
 #### `_refresh(updatedProps?)` on linked components
 
 `_refresh` is injected into wrapped `linkedComponent(...)` render functions.
 
 - `_refresh()` reruns the query and rerenders when results return.
-- `_refresh(updatedProps)` merges `updatedProps` into current query result state and rerenders immediately (without fetching first).
+- `_refresh(updatedProps)` merges `updatedProps` into the current result and rerenders immediately (without fetching first). The edit lives in the shared live-query cache, so every component showing the same query and subject sees it; the next refetch overwrites it. On a preloaded child (a complete result passed through `of`) the edit stays local to that component, and `_refresh()` makes it fetch on its own.
 - `updatedProps` is for query result keys only (for example `name`, `active` from your query), not regular additional props passed by parents.
 
 Example use case: optimistic UI after a mutation.
@@ -147,17 +152,79 @@ Both formats are supported. For linked-set wrappers, the external API is also `o
 ## Render lifecycle and loading state
 
 When `LinkedStorage` is initialized and data is not already preloaded in `of`:
-- First render: returns a loading element.
+- First render: returns the loading element (built-in SVG `.ld-loader`, or `loader` from the instance, the definition options or `LinkedComponentDefaults`).
 - Query resolves: component rerenders with mapped query result props.
-- Source changes (`of` changes): prior query result is cleared and query runs again.
+- A refetch (`_refresh()`, or an automatic one after a change): the current data stays rendered and `_refreshing` is `true` until the response lands.
+- `of` changes: if that subject is already cached in the live-query store it renders immediately, otherwise the loading element shows until it loads.
+- Identical queries share one request and one cached result, across components.
 
-Loading fallback is currently fixed to:
+## Reactivity
 
-```html
-<div class="ld-loader" role="status" aria-label="Loading"></div>
+Two components, one subject:
+
+```tsx
+const TeamMembers = linkedComponent(Team.select((t) => t.members.name), ({members}) => (
+  <ul>{members.map((m) => <li key={m.id}>{m.name}</li>)}</ul>
+));
+const TeamHeader = linkedComponent(Team.select((t) => [t.name, t.members.size()]), ({name, members}) => (
+  <h2>{name} ({members})</h2>
+));
+
+await Team.update({members: {add: [{id: personId}]}}).for({id: teamId});
+// → TeamHeader and TeamMembers refetch and rerender. A PersonCard for someone else does not.
 ```
 
-There is no API prop to replace this element today. You can style it via CSS class `.ld-loader`.
+How it works: core keeps a live-query store (see core's [live-queries guide](https://github.com/linked-fw/core/blob/main/documentation/live-queries.md)). Every mounted component is a live instance of its query template; the template's dependencies — which predicates it reads, which it filters or sorts on, which shapes it touches — are computed once from the query. Every change is normalised to what it wrote and which nodes it touched, and the store refetches exactly the instances that can have been affected, by node id where it can tell and template-wide where it cannot.
+
+Change sources, all automatic once set up:
+- **Local mutations** — every `await Shape.update/create/delete(...)` in the app, `exec(target)` included.
+- **A dataset's change feed** — a dataset that implements `IDataset.subscribeChanges(listener)` reports changes made elsewhere (another client, a server job) as the mutation's DSL-JSON plus its result, or as precomputed effects.
+- **Your own transport** — `publishChange({mutation, result})` or `publishChange({effects})` from application code (re-exported from `@_linked/react`).
+- **Manual** — `invalidate(Team)`, `invalidate({id})`, `invalidate(query)` or `_refresh()`.
+
+A component can opt out with `{reactive: false}`; this applies to its query template, i.e. every component or hook using that exact query. Components and hooks are safe under React StrictMode. A result object passed through `of` by a parent that preloaded it (`preloadFor`) does not subscribe on its own; it stays fresh through the parent, whose query includes the child's fields.
+
+## Hooks
+
+The components are built on two hooks, exported for the cases the component shape does not fit: several queries in one component, a query that depends on local state (a search box, a selected tab), conditional fetching, an inline count, or data with no `of` subject.
+
+```tsx
+import {useLinkedQuery, useLinkedSetQuery} from '@_linked/react';
+
+function TeamPage({teamId}: {teamId: string}) {
+  const team = useLinkedQuery(Team.select((t) => [t.name, t.members.size()]), {id: teamId});
+  const total = useLinkedQuery(Team.select().toCount());
+  const [q, setQ] = useState('');
+  const results = useLinkedSetQuery(
+    Person.select((p) => p.name).where((p) => p.name.contains(q)).limit(20),
+    undefined,
+    {enabled: q.length > 1},
+  );
+  if (team.loading) return <Spinner />;
+  // team.data.name, team.data.members, team.refreshing, team.notFound, team.refresh(), team.patch({...})
+  // results.data, results.page.next() / previous() / set(i) / setLimit(n)
+}
+```
+
+- `useLinkedQuery(query, of?, options?)` → `{data, loading, refreshing, error, notFound, refresh, patch}`. `of` is `{id}`, a Shape, or a result object; optional when the builder is already bound (`.for(id)`, `.for(getQueryContext('user'))`) or is a count/ask. `loading` means no data yet; `refreshing` means data is present and a fetch is in flight.
+- `useLinkedSetQuery(query, of?, options?)` → the same plus `page: {next, previous, set, setLimit, index, limit}`. `of` is a `ShapeSet` or an array of `{id}`/Shapes/result objects.
+- Options: `enabled` (default `true`), `reactive`, `name`.
+
+`getLiveQueryStore().templates()` lists every registered query template (components register theirs at definition), and `getLiveQueryStore().prepare()` computes their dependencies eagerly — the list of queries an app can fire, for a database to tune for.
+
+### Hook or component?
+
+Reactivity is the same either way: a mounted hook and a mounted component both register a live instance of their query, and both refetch after a matching change. The difference is **discovery without rendering**, which only a linked component provides:
+
+- **`preloadFor(Component)`** — a parent reads the child's static `query` and loads its fields in the same request.
+- **The package registry** — the component is registered against its shape.
+- **The template registry** — its query template is pinned at definition, so `templates()` / `prepare()` list it from app start. A bare hook's template is listed only while mounted and is dropped when idle.
+
+Use `linkedComponent` / `linkedSetComponent` by default: one component, one query, one subject through `of`. Reach for a hook when that shape does not fit — several queries in one component, a query that depends on local state, conditional fetching (`enabled`), an inline count or exists check, data with no `of` subject, or wrapping a third-party component that renders on its own terms. A hook-based component is not discoverable: it has no static `query`, so it cannot be a `preloadFor` target, is not in the package registry, and cannot be offered as a connectable component by tooling that lists components and the data they need. Anything that should be discoverable — one query, one subject through `of` — belongs in a `linkedComponent`.
+
+## Subscribing outside React
+
+The same store works without React: `query.live()` returns a handle with `state`, `subscribe(cb)`, `refresh()`, `patch()` and `close()`, and `await live` resolves with the first result. See core's [live-queries guide](https://github.com/linked-fw/core/blob/main/documentation/live-queries.md).
 
 ## Linked set pagination API
 
@@ -165,7 +232,7 @@ When `linkedSetComponent(...)` has a limit (explicit query limit or default limi
 - `query.nextPage()`
 - `query.previousPage()`
 - `query.setPage(pageIndex)`
-- `query.setLimit(limit)`
+- `query.setLimit(limit)` (also moves back to the first page)
 
 There is no public `setOffset(...)` in the React query controller; use `setPage`, `nextPage`, or `previousPage`.
 
@@ -233,7 +300,7 @@ const PeopleList = linkedSetComponent(
 
 ## Notes
 
-- This package depends on `@_linked/core` query APIs and `preloadFor(...)` / `BoundComponent` behavior from core.
+- This package depends on `@_linked/core` query APIs, its live-query store, and `preloadFor(...)` / `BoundComponent` behavior from core.
 - `@_linked/react` itself does not provide RDF storage; use a store package and set a default store in `LinkedStorage` (for example `@_linked/rdf-mem-store`).
 
 ## Storage setup (example: `@_linked/rdf-mem-store`)
@@ -250,7 +317,6 @@ LinkedStorage.setDefaultStore(new InMemoryStore());
 ## TODO
 
 - Add `setOffset` to `linkedSetComponent` query controller.
-- Make loader configurable and/or switch to passing a loading-state prop.
 
 ## Development
 
