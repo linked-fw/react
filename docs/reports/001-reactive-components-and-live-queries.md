@@ -52,7 +52,7 @@ Decisions (ideation D1–D10, with the plan-review amendments):
 | `src/utils/LinkedComponent.ts` | Both factories rebuilt on the hooks; pinned templates registered at definition; `notFoundElement` resolution; types kept. |
 | `src/utils/useQueryContext.ts` | Set on id change, clear on unmount only if still current. |
 | `src/index.ts` | Named exports of the hooks and their types; re-exports `invalidate`, `publishChange`, `getLiveQueryStore` and the live types from core. `/native` re-exports the root. |
-| `package.json` | `typecheck` script; peer `@_linked/core` `^2.25.0`. |
+| `package.json` | `typecheck` script; peer `@_linked/core` `^2.27.0`. |
 
 ### Public API
 
@@ -149,7 +149,7 @@ Final validation: `npm test` 5 suites / 69 tests; `npm run typecheck` clean; `np
 
 ## Release and merge order
 
-1. Merge and publish the core PR (minor, expected 2.25.0).
+1. Merge and publish the core PR (minor; published as 2.27.0).
 2. In this PR, bump the `@_linked/core` devDependency to the published version and refresh the lockfile — until then CI installs core 2.22.8, which has no live queries, and the suites fail. Development here used `npm install --no-save ../core`.
 3. Merge this PR (major, 2.0.0).
 
