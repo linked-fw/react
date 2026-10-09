@@ -1,5 +1,5 @@
 ---
-summary: Reactive data-bound components for @_linked/react 2.0 — linkedComponent / linkedSetComponent rebuilt on @_linked/core's new live-query store, so every mounted component whose query can have read changed data (local mutation, dataset change feed, or app-published change) refetches and rerenders, and nothing else does; plus public hooks (useLinkedQuery, useLinkedSetQuery, withQuery). Cross-repository record of the ideation, decisions, implementation and review iteration.
+summary: Reactive data-bound components for @_linked/react 2.0 — linkedComponent / linkedSetComponent rebuilt on @_linked/core's new live-query store, so every mounted component whose query can have read changed data (local mutation, dataset change feed, or app-published change) refetches and rerenders, and nothing else does; plus public hooks (useLinkedQuery, useLinkedSetQuery). Cross-repository record of the ideation, decisions, implementation and review iteration.
 packages: [react, core]
 ---
 
@@ -37,6 +37,7 @@ Decisions (ideation D1–D10, with the plan-review amendments):
 - **Releases (D8):** one core minor; react 2.0.0 because the core peer floor rises.
 - **Dependency extraction (D9):** in core, from the IR (`queryDependencies`, `mutationEffects`), not re-parsed from DSL-JSON.
 - **Layout (D10):** core `src/live/`; react `src/hooks/` plus the slimmed component file.
+- **No `withQuery` (decided at wrapup):** an earlier draft exported `withQuery(Component, query)` to give hook-based components the static `query`/`shape` and registration of a linked component. It was removed before release: it attached a contract nothing enforced (the component need not take `of` or use that query), it did not register in the package export tree, and it overlapped with `linkedComponent`. Linked components are the discoverable, connectable unit — the one tooling such as a visual builder lists and describes (component, accepted shape, query) — while hooks are data access for components that need not be discovered.
 
 ## React package: what changed
 
@@ -48,11 +49,9 @@ Decisions (ideation D1–D10, with the plan-review amendments):
 | `src/hooks/useLiveQuery.ts` | Internal `useSyncExternalStore` over a core `LiveQuery` handle; imports the core store module so deep-path consumers get it registered; SSR snapshot is idle. |
 | `src/hooks/useLinkedQuery.ts` | Public single-subject hook; internal `useLive` (one handle per instance key, closed on change/unmount; StrictMode-safe because handles are reopenable), `usePreloadedState` (local patch / go-live state keyed by subject), `useStableContextQuery` (keeps a context-bound inline builder stable on the render where the context lands). |
 | `src/hooks/useLinkedSetQuery.ts` | Public list hook with paging state; empty subject set → `[]` without fetching; complete result arrays are paged client-side. |
-| `src/hooks/withQuery.ts` | Gives a hook-based component `query`/`shape` statics, package registration and a pinned template, so it is preloadable. |
 | `src/utils/LinkedComponent.ts` | Both factories rebuilt on the hooks; pinned templates registered at definition; `notFoundElement` resolution; types kept. |
 | `src/utils/useQueryContext.ts` | Set on id change, clear on unmount only if still current. |
 | `src/index.ts` | Named exports of the hooks and their types; re-exports `invalidate`, `publishChange`, `getLiveQueryStore` and the live types from core. `/native` re-exports the root. |
-| `src/package.ts` | `registerComponent` exported (used by `withQuery`). |
 | `package.json` | `typecheck` script; peer `@_linked/core` `^2.25.0`. |
 
 ### Public API
@@ -62,11 +61,10 @@ useLinkedQuery(query, of?, {enabled?, reactive?, name?})
   → {data, loading, refreshing, error, notFound, refresh, patch}
 useLinkedSetQuery(query, of?, options?)
   → {data, loading, refreshing, error, refresh, patch, page: {next, previous, set, setLimit, index, limit}}
-withQuery(Component, query, {name?})
 // components: `_refreshing` prop; options/props `notFoundElement`; options `name`, `reactive`
 ```
 
-`loading` means no data yet; `refreshing` means data is present and a fetch is in flight. `of` is `{id}`, a Shape or a result object (sets: ShapeSet or an array) and is optional for a bound builder, a count or an ask. Use the components by default (they carry the static `query` that `preloadFor` and the registry discover); use a hook for several queries per component, state-dependent queries, conditional fetching, inline counts, or data without an `of` subject. Reactivity does not depend on the choice: hooks and components both register live instances. What only a component or `withQuery` adds is discovery without rendering — `preloadFor`, the package registry, and a pinned template in `templates()`/`prepare()`; a bare hook's template exists only while mounted.
+`loading` means no data yet; `refreshing` means data is present and a fetch is in flight. `of` is `{id}`, a Shape or a result object (sets: ShapeSet or an array) and is optional for a bound builder, a count or an ask. Use the components by default (they carry the static `query` that `preloadFor` and the registry discover); use a hook for several queries per component, state-dependent queries, conditional fetching, inline counts, or data without an `of` subject. Reactivity does not depend on the choice: hooks and components both register live instances. What only a linked component adds is discovery without rendering — `preloadFor`, the package registry, and a pinned template in `templates()`/`prepare()`; a bare hook's template exists only while mounted.
 
 ### Behaviour changes worth knowing
 
@@ -141,7 +139,7 @@ Two independent reviews (core store, react layer) found, among others: a StrictM
 
 | File | Covers |
 |---|---|
-| `src/tests/hooks.test.tsx` | Subject, bound builder, count, preloaded (no fetch), `enabled`, notFound, cached `of` switch without refetch, refreshing, pending context, GC after unmount, list paging and page size, ShapeSet/array narrowing, stable ShapeSet, client-side paging, `withQuery`. |
+| `src/tests/hooks.test.tsx` | Subject, bound builder, count, preloaded (no fetch), `enabled`, notFound, cached `of` switch without refetch, refreshing, pending context, GC after unmount, list paging and page size, ShapeSet/array narrowing, stable ShapeSet, client-side paging. |
 | `src/tests/react-component-behavior.test.tsx` | The original component suite unchanged, plus `_refreshing`, `notFoundElement` (option, prop, default), set component defined before storage, stable ShapeSet, out-of-order responses, pending context. |
 | `src/tests/reactivity.test.tsx` | The team scenario end to end: member add, rename, unrelated card, remote feed, `publishChange`, `invalidate`, echo folding, `reactive:false`, `useQueryContext` cleanup; review regressions (StrictMode, Shape `of`, inline `useQueryContext`, mount before storage, empty set). |
 | `src/tests/native-barrel.test.tsx`, `classnames-and-query-context.test.tsx` | Native entry exports and defaults; utilities. |

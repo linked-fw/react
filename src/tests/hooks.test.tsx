@@ -8,7 +8,6 @@ import {FieldSet} from '@_linked/core/queries/FieldSet';
 import {ShapeSet} from '@_linked/core/collections/ShapeSet';
 import {useLinkedQuery} from '../hooks/useLinkedQuery.js';
 import {useLinkedSetQuery} from '../hooks/useLinkedSetQuery.js';
-import {withQuery} from '../hooks/withQuery.js';
 import {Person, ScriptedDataset, Team, ids} from './fixtures.js';
 
 let dataset: ScriptedDataset;
@@ -202,21 +201,5 @@ describe('useLinkedSetQuery', () => {
     act(() => screen.getByText('next').click());
     expect(screen.getByText('row2')).toBeTruthy();
     expect(dataset.selects).toBe(0);
-  });
-});
-
-describe('withQuery', () => {
-  test('exposes statics, registers a pinned template and is preloadable', () => {
-    function Plain({name}: {name: string}) {
-      return <span>{name}</span>;
-    }
-    const Named = withQuery(Plain, nameQuery, {name: 'plainName'});
-    expect(Named.query).toBe(nameQuery);
-    expect(Named.shape).toBe(Person);
-    expect(FieldSet.extractComponentFieldSet(Named)?.labels()).toEqual(['name']);
-    expect(getLiveQueryStore().templates().map((t) => t.name)).toEqual(['plainName']);
-    // A parent can preload for it.
-    const parent = Team.select((t) => t.lead.preloadFor(Named));
-    expect(JSON.stringify(parent.toJSON())).toContain('name');
   });
 });

@@ -8,8 +8,6 @@ export {useLinkedQuery} from './hooks/useLinkedQuery.js';
 export type {LinkedOptions, LinkedQueryResult, LiveableQuery, SingleResultOf} from './hooks/useLinkedQuery.js';
 export {useLinkedSetQuery} from './hooks/useLinkedSetQuery.js';
 export type {LinkedSetQueryResult, PageController} from './hooks/useLinkedSetQuery.js';
-export {withQuery} from './hooks/withQuery.js';
-export type {QueryComponent} from './hooks/withQuery.js';
 export type {OfInput, SetOfInput, ResultObject} from './hooks/of.js';
 // The live-query API lives in core; re-exported here so an app that imports
 // only `@_linked/react` has the levers at hand.

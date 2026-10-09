@@ -27,7 +27,6 @@ describe('@_linked/react/native', () => {
     // The hooks and the live-query levers are part of the root API.
     expect(typeof root.useLinkedQuery).toBe('function');
     expect(typeof root.useLinkedSetQuery).toBe('function');
-    expect(typeof root.withQuery).toBe('function');
     expect(typeof root.invalidate).toBe('function');
     expect(typeof root.publishChange).toBe('function');
 

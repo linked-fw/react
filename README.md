@@ -8,7 +8,7 @@ React bindings for `@_linked/core`.
 
 This package provides:
 - `linkedComponent(...)` and `linkedSetComponent(...)` — reactive, data-bound components
-- `useLinkedQuery(...)`, `useLinkedSetQuery(...)` and `withQuery(...)` — the hooks underneath them
+- `useLinkedQuery(...)` and `useLinkedSetQuery(...)` — the hooks underneath them
 - `LinkedComponentClass`
 - `useStyles(...)`, `useQueryContext(...)`
 
@@ -189,7 +189,7 @@ A component can opt out with `{reactive: false}`; this applies to its query temp
 The components are built on two hooks, exported for the cases the component shape does not fit: several queries in one component, a query that depends on local state (a search box, a selected tab), conditional fetching, an inline count, or data with no `of` subject.
 
 ```tsx
-import {useLinkedQuery, useLinkedSetQuery, withQuery} from '@_linked/react';
+import {useLinkedQuery, useLinkedSetQuery} from '@_linked/react';
 
 function TeamPage({teamId}: {teamId: string}) {
   const team = useLinkedQuery(Team.select((t) => [t.name, t.members.size()]), {id: teamId});
@@ -209,19 +209,18 @@ function TeamPage({teamId}: {teamId: string}) {
 - `useLinkedQuery(query, of?, options?)` → `{data, loading, refreshing, error, notFound, refresh, patch}`. `of` is `{id}`, a Shape, or a result object; optional when the builder is already bound (`.for(id)`, `.for(getQueryContext('user'))`) or is a count/ask. `loading` means no data yet; `refreshing` means data is present and a fetch is in flight.
 - `useLinkedSetQuery(query, of?, options?)` → the same plus `page: {next, previous, set, setLimit, index, limit}`. `of` is a `ShapeSet` or an array of `{id}`/Shapes/result objects.
 - Options: `enabled` (default `true`), `reactive`, `name`.
-- `withQuery(Component, query)` sets `Component.query`/`Component.shape`, registers the component and pins its template, so a parent can `preloadFor(Component)` exactly as with a linked component.
 
 `getLiveQueryStore().templates()` lists every registered query template (components register theirs at definition), and `getLiveQueryStore().prepare()` computes their dependencies eagerly — the list of queries an app can fire, for a database to tune for.
 
 ### Hook or component?
 
-Reactivity is the same either way: a mounted hook and a mounted component both register a live instance of their query, and both refetch after a matching change. The difference is **discovery without rendering**, which only a component (or `withQuery`) provides:
+Reactivity is the same either way: a mounted hook and a mounted component both register a live instance of their query, and both refetch after a matching change. The difference is **discovery without rendering**, which only a linked component provides:
 
 - **`preloadFor(Component)`** — a parent reads the child's static `query` and loads its fields in the same request.
 - **The package registry** — the component is registered against its shape.
 - **The template registry** — its query template is pinned at definition, so `templates()` / `prepare()` list it from app start. A bare hook's template is listed only while mounted and is dropped when idle.
 
-Use `linkedComponent` / `linkedSetComponent` by default: one component, one query, one subject through `of`. Reach for a hook when that shape does not fit — several queries in one component, a query that depends on local state, conditional fetching (`enabled`), an inline count or exists check, data with no `of` subject, or wrapping a third-party component that renders on its own terms — and wrap it with `withQuery(Component, query)` if it should still be preloadable and registered.
+Use `linkedComponent` / `linkedSetComponent` by default: one component, one query, one subject through `of`. Reach for a hook when that shape does not fit — several queries in one component, a query that depends on local state, conditional fetching (`enabled`), an inline count or exists check, data with no `of` subject, or wrapping a third-party component that renders on its own terms. A hook-based component is not discoverable: it has no static `query`, so it cannot be a `preloadFor` target, is not in the package registry, and cannot be offered as a connectable component by tooling that lists components and the data they need. Anything that should be discoverable — one query, one subject through `of` — belongs in a `linkedComponent`.
 
 ## Subscribing outside React
 
