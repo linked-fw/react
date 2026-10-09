@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.6.4
+
+### Patch Changes
+
+- [#79](https://github.com/linked-fw/react/pull/79) [`3bc2291`](https://github.com/linked-fw/react/commit/3bc2291ca8af5225bcc06dfd42a1d60beceb663e) Thanks [@flyon](https://github.com/flyon)! - A linked component given an instance of a sub-shape that exists only as data (a shape authored in a project, with no TypeScript class) now keeps that instance as its source. It used to replace it with a fresh instance of the component's own shape, because the inheritance check looked the sub-shape up by class and found none.
+
+## 1.6.3
+
+### Patch Changes
+
+- [#76](https://github.com/linked-fw/react/pull/76) [`a91d8ed`](https://github.com/linked-fw/react/commit/a91d8ed9cede3a0fbbcaf6d2c0bad83a0d9935a6) Thanks [@flyon](https://github.com/flyon)! - Remove unused dependency react-usestateref
+
 ## 1.6.2
 
 ### Patch Changes

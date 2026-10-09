@@ -1,7 +1,7 @@
 {
   "name": "@_linked/react",
-  "version": "1.6.2",
-  "packageManager": "npm@11.20.0",
+  "version": "1.6.4",
+  "packageManager": "npm@12.1.0",
   "license": "MIT",
   "linkedPackage": true,
   "type": "module",
@@ -65,26 +65,23 @@
       "optional": true
     }
   },
-  "dependencies": {
-    "react-usestateref": "^1.0.8"
-  },
   "devDependencies": {
     "@_linked/core": "^2.22.8",
     "@changesets/changelog-github": "^1.0.0",
     "@changesets/cli": "^3.0.0",
-    "@jest/globals": "^29.7.0",
+    "@jest/globals": "^30.0.0",
     "@testing-library/dom": "^10.4.2",
     "@testing-library/react": "^16.3.3",
-    "@types/jest": "^29.5.12",
+    "@types/jest": "^30.0.0",
     "@types/node": "^24.0.0",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
-    "jest": "^29.7.0",
-    "jest-environment-jsdom": "^29.7.0",
+    "jest": "^30.0.0",
+    "jest-environment-jsdom": "^30.0.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
-    "react-native": "0.86.3",
-    "rimraf": "^5.0.7",
+    "react-native": "0.87.1",
+    "rimraf": "^6.0.0",
     "ts-jest": "^29.1.2",
     "typescript": "^5.7.3"
   }

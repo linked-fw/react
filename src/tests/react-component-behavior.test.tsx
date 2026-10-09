@@ -7,6 +7,10 @@ import {literalProperty} from '@_linked/core/shapes/SHACL';
 import {LinkedStorage} from '@_linked/core/utils/LinkedStorage';
 import {QueryBuilder} from '@_linked/core/queries/QueryBuilder';
 import {ShapeSet} from '@_linked/core/collections/ShapeSet';
+import {
+  getOrCreateShapeAdapter,
+  registerNodeShape,
+} from '@_linked/core/utils/ShapeClass';
 import {getSourceFromInputProps} from '../utils/LinkedComponent.js';
 import {useStyles} from '../utils/Hooks.js';
 import {LinkedComponentClass} from '../utils/LinkedComponentClass.js';
@@ -395,6 +399,25 @@ describe('React component behavior', () => {
     expect(personFromCat).toBeInstanceOf(Person);
     expect(personFromCat).not.toBe(cat);
     expect(personFromCat.id).toBe('urn:test:gap:cat1');
+  });
+
+  test('getSourceFromInputProps keeps an instance of a data-only sub-shape', () => {
+    // A shape authored in a project exists only as data: it is in the node-shape
+    // registry and extends Person through `extends`, but has no TypeScript class, so
+    // getShapeClass() does not know it. Its instances must still count as Persons.
+    const employeeShapeId = 'urn:test:gap:EmployeeShape';
+    registerNodeShape({
+      id: employeeShapeId,
+      label: 'Employee',
+      targetClass: {id: 'urn:test:gap:Employee'},
+      extends: {id: Person.shape.id},
+      propertyShapes: [],
+    });
+    const Employee = getOrCreateShapeAdapter(employeeShapeId)!;
+    const employee = new Employee({id: 'urn:test:gap:employee1'});
+
+    const personFromEmployee = getSourceFromInputProps({of: employee}, Person);
+    expect(personFromEmployee).toBe(employee);
   });
 
   test('linked components expose shape/query metadata for package registration usage', () => {
