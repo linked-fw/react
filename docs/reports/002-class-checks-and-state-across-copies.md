@@ -13,7 +13,7 @@ Follows the convention in linked-fw/cli
 [shared state and error brands](https://github.com/linked-fw/cli/blob/main/docs/architecture/shared-state-and-error-brands.md)
 (cli report 020) and uses what core backlog 057 added in `@_linked/core` 2.36.2
 (`isLinkedInstance`, `brandLinkedClass`, with `Shape`, `ShapeSet` and `SelectBuilder`/`QueryBuilder` branded).
-Closes backlog 001, which this report replaces.
+Closes backlog 001, which this report replaces. PR: [linked-fw/react#90](https://github.com/linked-fw/react/pull/90).
 
 ## Problem
 
