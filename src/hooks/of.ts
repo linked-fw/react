@@ -1,5 +1,6 @@
 import {Shape} from '@_linked/core/shapes/Shape';
 import {ShapeSet} from '@_linked/core/collections/ShapeSet';
+import {isLinkedInstance} from '@_linked/core/utils/linkedError';
 import {isNodeReferenceValue, type NodeReferenceValue} from '@_linked/core/utils/NodeReference';
 import type {QResult} from '@_linked/core/queries/SelectQuery';
 import type {QueryBuilder} from '@_linked/core/queries/QueryBuilder';
@@ -20,7 +21,7 @@ export function subjectIdOf(of: OfInput): string | undefined {
   let input: unknown = of;
   // A one-element array (e.g. from `preloadFor` on a maxCount:1 property) is that element.
   if (Array.isArray(input) && input.length === 1) input = input[0];
-  if (input instanceof Shape) return input.id;
+  if (isLinkedInstance(input, Shape)) return input.id;
   if (isNodeReferenceValue(input)) return (input as NodeReferenceValue).id;
   return undefined;
 }
@@ -28,7 +29,7 @@ export function subjectIdOf(of: OfInput): string | undefined {
 /** The node ids behind a set `of` value, or `undefined` for "all instances". */
 export function subjectIdsOf(of: SetOfInput): string[] | undefined {
   if (!of) return undefined;
-  const items = of instanceof ShapeSet ? Array.from(of) : Array.from(of as ReadonlyArray<unknown>);
+  const items = isLinkedInstance(of, ShapeSet) ? Array.from(of) : Array.from(of as ReadonlyArray<unknown>);
   const ids: string[] = [];
   for (const item of items) {
     const id = subjectIdOf(item as OfInput);
@@ -44,7 +45,7 @@ export function subjectIdsOf(of: SetOfInput): string[] | undefined {
  * getters and must be fetched, not treated as data.
  */
 export function isCompleteQResult(of: unknown, query: QueryBuilder<any>): of is QResult<any> {
-  if (!of || typeof of !== 'object' || of instanceof Shape) return false;
+  if (!of || typeof of !== 'object' || isLinkedInstance(of, Shape)) return false;
   if (typeof (of as QResult<any>).id !== 'string') return false;
   const fieldSet = query.fields();
   if (!fieldSet) return false;
@@ -58,7 +59,7 @@ export function isCompleteSetQResult(of: unknown, query: QueryBuilder<any>): of 
 /** The own enumerable keys of `of` other than `shape`, forwarded to a component as before the live-query rewrite. */
 export function ownPropsOf(of: unknown): Record<string, unknown> {
   const out: Record<string, unknown> = {};
-  if (!of || typeof of !== 'object' || of instanceof Shape || Array.isArray(of)) return out;
+  if (!of || typeof of !== 'object' || isLinkedInstance(of, Shape) || Array.isArray(of)) return out;
   for (const key of Object.keys(of as object)) {
     if (key !== 'shape') out[key] = (of as Record<string, unknown>)[key];
   }
