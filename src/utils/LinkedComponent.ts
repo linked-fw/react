@@ -12,6 +12,7 @@ import {LinkedStorage} from '@_linked/core/utils/LinkedStorage';
 import {ShapeSet} from '@_linked/core/collections/ShapeSet';
 import {isNodeReferenceValue, NodeReferenceValue} from '@_linked/core/utils/NodeReference';
 import {getShapeClass, hasSuperClass} from '@_linked/core/utils/ShapeClass';
+import {isLinkedInstance} from '@_linked/core/utils/linkedError';
 import {useLinkedQuery} from '../hooks/useLinkedQuery.js';
 import {useLinkedSetQuery} from '../hooks/useLinkedSetQuery.js';
 import {isCompleteQResult, ownPropsOf} from '../hooks/of.js';
@@ -531,7 +532,7 @@ export function createLinkedSetComponentFn(
 
         const linkedProps: any = {...rest, sources, _refresh, _refreshing: live.refreshing};
         if (data !== undefined) {
-          if (query instanceof QueryBuilder) {
+          if (isLinkedInstance(query, QueryBuilder)) {
             linkedProps.linkedData = data;
           } else {
             linkedProps[Object.keys(query)[0]] = data;
@@ -577,7 +578,7 @@ function processQuery<ShapeType extends Shape>(
   let shapeClass: typeof Shape;
   let query: QueryBuilder<ShapeType>;
 
-  if (requiredData instanceof QueryBuilder) {
+  if (isLinkedInstance(requiredData, QueryBuilder)) {
     query = requiredData;
     // QueryBuilder._shape is private; extract shape IRI via toJSON and resolve the class.
     shapeClass = getShapeClass(requiredData.toJSON().shape) as unknown as typeof Shape;
@@ -588,7 +589,7 @@ function processQuery<ShapeType extends Shape>(
       );
     }
     for (let key in requiredData) {
-      if (requiredData[key] instanceof QueryBuilder) {
+      if (isLinkedInstance(requiredData[key], QueryBuilder)) {
         shapeClass = getShapeClass(requiredData[key].toJSON().shape) as unknown as typeof Shape;
         query = requiredData[key];
       } else {
@@ -612,7 +613,7 @@ function getLinkedSetComponentProps<ShapeType extends Shape, P>(
 ): LinkedSetComponentProps<ShapeType> & P {
   if (
     props.of &&
-    !(props.of instanceof ShapeSet) &&
+    !isLinkedInstance(props.of, ShapeSet) &&
     !Array.isArray(props.of)
   ) {
     throw Error(
@@ -625,7 +626,7 @@ function getLinkedSetComponentProps<ShapeType extends Shape, P>(
   }
 
   let sources: ShapeSet<ShapeType>;
-  if (props.of instanceof ShapeSet) {
+  if (isLinkedInstance(props.of, ShapeSet)) {
     sources = props.of;
   } else if (Array.isArray(props.of)) {
     sources = new ShapeSet(
@@ -653,7 +654,7 @@ export function getSourceFromInputProps(props, shapeClass) {
     input = input[0];
   }
 
-  if (input instanceof Shape) {
+  if (isLinkedInstance(input, Shape)) {
     if (
       input.nodeShape !== shapeClass.shape &&
       !hasSuperClass(input.nodeShape.id, shapeClass)

@@ -1,13 +1,18 @@
 import {CoreSet} from '@_linked/core/collections/CoreSet';
 import {linkedPackage as coreLinkedPackage} from '@_linked/core/utils/Package';
 import {Shape} from '@_linked/core/shapes/Shape';
+import {sharedState} from '@_linked/core/utils/sharedState';
 import {
   type Component,
   createLinkedComponentFn,
   createLinkedSetComponentFn,
 } from './utils/LinkedComponent.js';
 
-let shapeToComponents: Map<typeof Shape, CoreSet<Component>> = new Map();
+// The components `linkedComponent` registered for each shape. Kept on `globalThis` so a second
+// copy of this module (Vite's SSR runner next to Node, or two bundles) adds to the same registry.
+const registry = sharedState('@_linked/react', 'componentRegistry', () => ({
+  shapeToComponents: new Map<typeof Shape, CoreSet<Component>>(),
+}));
 
 const {
   linkedUtil,
@@ -32,11 +37,12 @@ function registerComponent(exportedComponent: Component, shape?: typeof Shape) {
     shape = exportedComponent.shape;
   }
 
-  if (!shapeToComponents.has(shape)) {
-    shapeToComponents.set(shape, new CoreSet<any>());
+  let components = registry.shapeToComponents.get(shape);
+  if (!components) {
+    components = new CoreSet<Component>();
+    registry.shapeToComponents.set(shape, components);
   }
-
-  shapeToComponents.get(shape).add(exportedComponent);
+  components.add(exportedComponent);
 }
 
 const linkedComponent = createLinkedComponentFn(
