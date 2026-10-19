@@ -11,9 +11,10 @@ packages: [react]
 
 Follows the convention in linked-fw/cli
 [shared state and error brands](https://github.com/linked-fw/cli/blob/main/docs/architecture/shared-state-and-error-brands.md)
-(cli report 020) and uses what core backlog 057 added in `@_linked/core` 2.36.2
+(cli report [020](https://github.com/linked-fw/cli/blob/main/docs/reports/020-shared-state-and-error-brands.md),
+the record of the cross-repo work) and uses what core backlog 057 added in `@_linked/core` 2.36.2
 (`isLinkedInstance`, `brandLinkedClass`, with `Shape`, `ShapeSet` and `SelectBuilder`/`QueryBuilder` branded).
-Closes backlog 001, which this report replaces. PR: [linked-fw/react#90](https://github.com/linked-fw/react/pull/90).
+Closes backlog 001, which this report replaces. Released in `@_linked/react` 2.0.2.
 
 ## Problem
 
@@ -84,3 +85,9 @@ loaded; that is the scenario under test.
   dedupes React). This package has no module-level React contexts, so nothing else to share.
 - linked-fw/cli `docs/architecture/shared-state-and-error-brands.md` still lists react as
   "react backlog 001" in its status table; update it there when that table is next refreshed.
+
+## PRs
+
+- [linked-fw/react#89](https://github.com/linked-fw/react/pull/89): backlog 001, the state and class checks a second copy does not see (removed by #90).
+- [linked-fw/react#90](https://github.com/linked-fw/react/pull/90): the change described here.
+- [linked-fw/react#91](https://github.com/linked-fw/react/pull/91): release of 2.0.2.
