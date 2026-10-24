@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.0.3
+
+### Patch Changes
+
+- [#93](https://github.com/linked-fw/react/pull/93) [`2248882`](https://github.com/linked-fw/react/commit/2248882162571bf2dfcda2da3354002a35f71f67) Thanks [@flyon](https://github.com/flyon)! - `linkedSetComponent` with a record of queries (`linkedSetComponent({people: Person.select(...)}, ({people}) => ...)`) types each key as the query's result rows again under `@_linked/core` 2.39, where a `QueryBuilder` is no longer structurally a `FieldSet` and the key was typed `never`. Tested against `@_linked/core` 2.39.3.
+
 ## 2.0.2
 
 ### Patch Changes
