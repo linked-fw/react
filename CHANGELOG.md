@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.0.4
+
+### Patch Changes
+
+- [#95](https://github.com/linked-fw/react/pull/95) [`4a9d662`](https://github.com/linked-fw/react/commit/4a9d662c09042be9f0230949890acfdbc197dc25) Thanks [@flyon](https://github.com/flyon)! - The test fixtures take their `xsd` datatypes from `@_linked/xsd/ontologies/xsd` (the vocabulary package, a new dev dependency) instead of core's internal `@_linked/core/ontologies/xsd` module. No change to the published code.
+
 ## 2.0.3
 
 ### Patch Changes
