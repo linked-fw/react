@@ -2,7 +2,7 @@ import {afterEach, beforeEach, describe, expect, jest, test} from '@jest/globals
 import React from 'react';
 import {act, fireEvent, render, screen, waitFor} from '@testing-library/react';
 import {linkedComponent, linkedSetComponent, linkedShape} from '../package.js';
-import {Shape} from '@_linked/core/shapes/Shape';
+import {Shape, type ShapeConstructor} from '@_linked/core/shapes/Shape';
 import {literalProperty} from '@_linked/core/shapes/SHACL';
 import {LinkedStorage} from '@_linked/core/utils/LinkedStorage';
 import {QueryBuilder} from '@_linked/core/queries/QueryBuilder';
@@ -413,7 +413,8 @@ describe('React component behavior', () => {
       extends: {id: Person.shape.id},
       propertyShapes: [],
     });
-    const Employee = getOrCreateShapeAdapter(employeeShapeId)!;
+    // The adapter is typed as the abstract `Shape`; this test needs an instance of it.
+    const Employee = getOrCreateShapeAdapter(employeeShapeId)! as unknown as ShapeConstructor;
     const employee = new Employee({id: 'urn:test:gap:employee1'});
 
     const personFromEmployee = getSourceFromInputProps({of: employee}, Person);

@@ -1,8 +1,8 @@
 /**
  * Shared test fixtures: a Team/Person model whose `name` properties share the
  * `schema:name` predicate, and a scripted dataset that answers from a row
- * table, records every fetch per query template, performs mutations and can
- * emit change events like a dataset with a change feed would.
+ * table, records every fetch per query template, performs mutations, refuses
+ * graph queries and can emit change events like a dataset with a change feed would.
  */
 import {Shape} from '@_linked/core/shapes/Shape';
 import {literalProperty, objectProperty} from '@_linked/core/shapes/SHACL';
@@ -13,6 +13,7 @@ import type {ChangeEvent} from '@_linked/core/live/changes';
 import {templateKey} from '@_linked/core/live/keys';
 import {xsd} from '@_linked/core/ontologies/xsd';
 import {isContextRefJSON, resolveContextId, CONTEXT_REF_KEY} from '@_linked/core/queries/ContextRef';
+import {unsupportedGraphQuery, type GraphQuery} from '@_linked/core/queries/graphQuery';
 
 const {linkedShape} = linkedPackage('react-test-fixtures');
 
@@ -176,6 +177,11 @@ export class ScriptedDataset implements IDataset {
     const deleted = (json.ids ?? []).map((id: string) => ({id}));
     for (const {id} of deleted) this.rows.delete(id);
     return {deleted, count: deleted.length};
+  }
+
+  /** No graph support: refused like a dataset without it. */
+  async graphQuery(query: GraphQuery): Promise<never> {
+    throw unsupportedGraphQuery(query);
   }
 
   subscribeChanges(listener: (e: ChangeEvent) => void): () => void {
