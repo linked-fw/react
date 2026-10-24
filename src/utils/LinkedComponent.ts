@@ -52,13 +52,19 @@ type QueryController = {
 type QueryControllerProps = {
   query?: QueryController;
 };
+/**
+ * The result rows of a QueryBuilder or FieldSet. A QueryBuilder is matched first: since core
+ * 2.39 it is no longer structurally a FieldSet.
+ */
 type ToQueryResultSet<T> =
-  T extends FieldSet<infer ResponseType, any>
+  T extends QueryBuilder<any, infer ResponseType, any>
     ? QueryResponseToResultType<ResponseType>[]
-    : null;
+    : T extends FieldSet<infer ResponseType, any>
+      ? QueryResponseToResultType<ResponseType>[]
+      : null;
 type GetCustomObjectKeys<T> = T extends QueryWrapperObject
   ? {
-      [P in keyof T]: T[P] extends FieldSet<any, any>
+      [P in keyof T]: T[P] extends QueryBuilder<any, any, any> | FieldSet<any, any>
         ? ToQueryResultSet<T[P]>
         : never;
     }
