@@ -11,7 +11,7 @@ import {linkedPackage} from '@_linked/core/utils/Package';
 import type {IDataset} from '@_linked/core/interfaces/IDataset';
 import type {ChangeEvent} from '@_linked/core/live/changes';
 import {templateKey} from '@_linked/core/live/keys';
-import {xsd} from '@_linked/core/ontologies/xsd';
+import * as xsd from '@_linked/xsd/ontologies/xsd';
 import {isContextRefJSON, resolveContextId, CONTEXT_REF_KEY} from '@_linked/core/queries/ContextRef';
 import {unsupportedGraphQuery, type GraphQuery} from '@_linked/core/queries/graphQuery';
 
