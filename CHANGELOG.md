@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.0.5
+
+### Patch Changes
+
+- [#100](https://github.com/linked-fw/react/pull/100) [`1f97aae`](https://github.com/linked-fw/react/commit/1f97aaedd8b2e7ae16203c37ef279f39cba74ee5) Thanks [@flyon](https://github.com/flyon)! - `package.json` says what this package is in `"linked": {"kind": "library"}` instead of `"linkedPackage": true`, which the CLI and server no longer read.
+
 ## 2.0.4
 
 ### Patch Changes
