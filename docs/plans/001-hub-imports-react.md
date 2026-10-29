@@ -148,7 +148,13 @@ green.
 **Report:** `docs/reports/004-component-index.md` (the react half; the step's full report is cli
 042). Plan doc: cli `docs/plans/005-component-index.md` (the step's one plan doc).
 
+## Release
+
+- After `@_linked/core` 2.46 (the K8 terms, core report 085) is published, raise the
+  devDependency `@_linked/core` to `^2.46.0` (`npm install`) before react's release PR runs CI:
+  `component-index.test.tsx` needs the terms. The peer range is already `^2.46.0`.
+
 ## Progress
 
-- [ ] CI — `componentIndexEntries`/`componentIndexTurtle`, set-component marker, type fix,
-  README, changeset (report 004)
+- [x] CI — `componentIndexEntries`/`componentIndexTurtle`, set-component marker, type fix,
+  README, changeset (report 004; whole step cli report 042)
