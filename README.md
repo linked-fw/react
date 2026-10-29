@@ -149,6 +149,32 @@ const NameList = linkedSetComponent({persons: personQuery}, ({persons}) => (
 
 Both formats are supported. For linked-set wrappers, the external API is also `of` (optional). Internally this becomes `sources` for the wrapped component.
 
+### Export your components from `src/components/index.ts`
+
+A package offers its components to builders (Create Now's drag-and-drop builder) through
+`src/components/index.ts`: export each linked component by name.
+
+```ts
+// src/components/index.ts
+export {PersonCard} from './PersonCard.js';
+export {NameList} from './NameList.js';
+```
+
+`linked build` then writes the package's component index to `lib/esm/data/components.ttl`, next to
+`shapes.ttl`: per linked component its export name, start shape, query shape and query in the wire
+format (`QueryBuilder.toJSON()`, as canonical JSON). The generator is
+`componentIndexTurtle(packageName, exports)` in `@_linked/react/utils/componentIndex`.
+
+- Every named export made by `linkedComponent` or `linkedSetComponent` is indexed; anything else is
+  ignored. A component exported under several names is one entry, named by the smallest name.
+- A query bound at definition time is recorded as written: `.for(getQueryContext('user'))` as a
+  context reference (`{"@ctx":"user"}`), `.for('<iri>')` as that IRI, `.for(null)` as
+  `nullSubject`. A query context set at module load (`setQueryContext` at the top level of a module
+  the index imports) is recorded resolved, as an IRI.
+- A component whose query does not serialize is left out, and the build prints a warning naming it.
+- No `src/components/index.ts`, no file. `src/data/components.ttl` is a reserved name: the build
+  writes over it.
+
 ## Render lifecycle and loading state
 
 When `LinkedStorage` is initialized and data is not already preloaded in `of`:

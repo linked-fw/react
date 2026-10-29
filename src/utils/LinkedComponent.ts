@@ -96,6 +96,8 @@ export interface LinkedComponent<
   original?: LinkableComponent<P, ShapeType>;
   query: QueryBuilder<any>;
   shape?: typeof Shape;
+  /** Absent: only `linkedSetComponent` marks its result (`setComponent: true`). */
+  setComponent?: undefined;
 }
 
 export interface LinkedSetComponent<
@@ -108,8 +110,11 @@ export interface LinkedSetComponent<
       React.ComponentPropsWithRef<any>
   > {
   original?: LinkableSetComponent<P, ShapeType>;
+  /** The query as given: a QueryBuilder, or the one-key `{propName: query}` wrapper. */
   query: QueryBuilder<any> | QueryWrapperObject<ShapeType>;
   shape?: typeof Shape;
+  /** Marks a component made by `linkedSetComponent` (the component index reads it). */
+  setComponent?: true;
 }
 
 export type LinkableComponent<P, ShapeType extends Shape = Shape> = React.FC<
@@ -560,6 +565,7 @@ export function createLinkedSetComponentFn(
 
     _wrappedComponent.original = functionalComponent;
     _wrappedComponent.query = query;
+    _wrappedComponent.setComponent = true;
 
     _wrappedComponent.shape = shapeClass;
     if (functionalComponent.name) {
