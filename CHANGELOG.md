@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.1.0
+
+### Minor Changes
+
+- [#102](https://github.com/linked-fw/react/pull/102) [`4d5197e`](https://github.com/linked-fw/react/commit/4d5197e225a975bb1e12188b11abcf41e18b3007) Thanks [@flyon](https://github.com/flyon)! - Component index: `componentIndexTurtle(packageName, exports)` and `componentIndexEntries` in `@_linked/react/utils/componentIndex` turn the linked components a package exports from `components/index` into the Turtle `linked build` writes as `lib/esm/data/components.ttl` (export name, start shape, query shape, query wire format as canonical `rdf:JSON`). `linkedSetComponent` marks its result `setComponent: true`. Needs `@_linked/core` 2.46 (peer range raised).
+
 ## 2.0.5
 
 ### Patch Changes
