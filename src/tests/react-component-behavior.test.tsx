@@ -6,6 +6,7 @@ import {Shape, type ShapeConstructor} from '@_linked/core/shapes/Shape';
 import {literalProperty} from '@_linked/core/shapes/SHACL';
 import {LinkedStorage} from '@_linked/core/utils/LinkedStorage';
 import {QueryBuilder} from '@_linked/core/queries/QueryBuilder';
+import {readKindOf} from '@_linked/core/queries/readQuery';
 import {ShapeSet} from '@_linked/core/collections/ShapeSet';
 import {
   getOrCreateShapeAdapter,
@@ -93,7 +94,9 @@ class MockStore {
     this.queue.push(resultPromise);
   }
 
-  async selectQuery(query: any): Promise<any> {
+  async readQuery(query: any): Promise<any> {
+    const kind = readKindOf(query);
+    if (kind !== 'select' && kind !== 'count') throw new Error(`MockStore does not answer a ${kind} read.`);
     const json = typeof query?.toJSON === 'function' ? query.toJSON() : query;
     // A subject-bound query (`.for(id)`) is inherently single-result; on the
     // serialized form that shows up as a `subject` even when the explicit
@@ -308,14 +311,14 @@ describe('React component behavior', () => {
     ).toThrow('Unknown data query type');
   });
 
-  test('rejects when selectQuery is called without a configured store', async () => {
-    // Setting null store means selectQuery will reject past the payload-shape
+  test('rejects when readQuery is called without a configured store', async () => {
+    // Setting null store means readQuery will reject past the payload-shape
     // validation. Provide a `shape` so the payload passes the shape guard added
     // in core 2.14.4 and reaches the no-store check.
     LinkedStorage.setDefaultDataset(null as any);
 
     await expect(
-      LinkedStorage.selectQuery({shape: {id: 'urn:test-shape'}} as any),
+      LinkedStorage.readQuery({__queryKind: 'select', shape: {id: 'urn:test-shape'}} as any),
     ).rejects.toThrow('No query dataset configured');
 
     // Restore store for subsequent tests

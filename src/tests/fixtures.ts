@@ -14,6 +14,8 @@ import {templateKey} from '@_linked/core/live/keys';
 import * as xsd from '@_linked/xsd/ontologies/xsd';
 import {isContextRefJSON, resolveContextId, CONTEXT_REF_KEY} from '@_linked/core/queries/ContextRef';
 import {unsupportedGraphQuery, type GraphQuery} from '@_linked/core/queries/graphQuery';
+import {readKindOf, type ReadQuery, type ReadResult} from '@_linked/core/queries/readQuery';
+import type {QueryFeature} from '@_linked/core/queries/queryFeatures';
 
 const {linkedShape} = linkedPackage('react-test-fixtures');
 
@@ -82,6 +84,8 @@ export class ScriptedDataset implements IDataset {
   /** Deferred answers consumed by the next selects, in order. */
   queue: Deferred[] = [];
   private listeners = new Set<(e: ChangeEvent) => void>();
+  /** Asks are answered natively, not as a select `LIMIT 1`. */
+  readonly supports: readonly QueryFeature[] = ['ask'];
 
   constructor(rows: Row[] = defaultRows()) {
     for (const r of rows) this.rows.set(r.id, r);
@@ -103,7 +107,19 @@ export class ScriptedDataset implements IDataset {
     return this.fetches.get(templateKey(query as any)) ?? 0;
   }
 
-  async selectQuery(query: any): Promise<any> {
+  async readQuery<Q extends ReadQuery>(query: Q): Promise<ReadResult<Q>> {
+    switch (readKindOf(query)) {
+      case 'select':
+      case 'count':
+        return (await this.select(query)) as ReadResult<Q>;
+      case 'ask':
+        return this.ask(query) as ReadResult<Q>;
+      default:
+        throw new Error(`ScriptedDataset does not answer a ${readKindOf(query)} read.`);
+    }
+  }
+
+  private async select(query: any): Promise<any> {
     this.selects++;
     const key = templateKey(query);
     this.fetches.set(key, (this.fetches.get(key) ?? 0) + 1);
@@ -137,7 +153,7 @@ export class ScriptedDataset implements IDataset {
     return out;
   }
 
-  async askQuery(query: any): Promise<boolean> {
+  private ask(query: any): boolean {
     const json = query.toJSON();
     return typeof json.subject === 'string' ? this.rows.has(json.subject) : this.rows.size > 0;
   }

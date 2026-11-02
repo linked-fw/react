@@ -32,7 +32,7 @@ describe('@_linked/react/native', () => {
 
     // A query that never resolves keeps the component on the built-in loader.
     LinkedStorage.setDefaultDataset({
-      selectQuery: () => new Promise(() => {}),
+      readQuery: () => new Promise(() => {}),
     } as any);
 
     @root.linkedShape
