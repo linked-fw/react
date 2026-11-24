@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.0.0
+
+### Major Changes
+
+- [#113](https://github.com/linked-fw/react/pull/113) [`af23910`](https://github.com/linked-fw/react/commit/af239103f1bac831e069c309bc8b6d10fcbce255) Thanks [@flyon](https://github.com/flyon)! - `linkedPackage` (and the package's own exports) give `registerOntologies` in place of `linkedOntology`, which the core this release builds on no longer has. A package registers its ontologies from a generated `src/ontologies/index.ts` with `registerOntologies([...], import.meta.url)`; no package registers a prefix. The component index (`components.ttl`) declares the `core` namespace itself instead of reading it from core's ontology module; its bytes are unchanged.
+
 ## 2.1.0
 
 ### Minor Changes
