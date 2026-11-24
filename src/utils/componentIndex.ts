@@ -9,7 +9,7 @@
 import {QueryBuilder} from '@_linked/core/queries/QueryBuilder';
 import {isLinkedInstance} from '@_linked/core/utils/linkedError';
 import {getPackageUri} from '@_linked/core/shapes/SHACL';
-import {coreOntology, ns as coreNs} from '@_linked/core/ontologies/linked-core';
+import {coreOntology} from '@_linked/core/ontologies/linked-core';
 import {rdf, ns as rdfNs} from '@_linked/core/ontologies/rdf';
 
 export interface ComponentIndexEntry {
@@ -27,9 +27,12 @@ export interface ComponentIndexEntry {
   query: string;
 }
 
+// The file declares its own prefixes: it is a self-contained document, written whatever map the
+// running app has loaded.
+const CORE = 'https://linked.cm/ont/core/';
 const XSD = 'http://www.w3.org/2001/XMLSchema#';
 const PREFIXES: [string, string][] = [
-  ['core', coreNs('').id],
+  ['core', CORE],
   ['rdf', rdfNs('').id],
   ['xsd', XSD],
 ];

@@ -1,7 +1,7 @@
 ---
 date: 2026-10-29
 summary: >
-  The react half of the component index (CN plan 282 step CI, K8): `componentIndexTurtle` and
+  The react half of the component index (the host app's component plan, step CI, K8): `componentIndexTurtle` and
   `componentIndexEntries` in `@_linked/react/utils/componentIndex` turn a package's
   `components/index` exports into the Turtle `linked build` writes as `lib/esm/data/components.ttl`;
   `linkedSetComponent` marks its result. Minor. The whole step: cli report 042.

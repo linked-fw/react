@@ -16,7 +16,7 @@ const registry = sharedState('@_linked/react', 'componentRegistry', () => ({
 
 const {
   linkedUtil,
-  linkedOntology,
+  registerOntologies,
   linkedShape,
   registerPackageExport,
   registerPackageModule,
@@ -67,7 +67,7 @@ export {
   linkedSetComponent,
   linkedShape,
   linkedUtil,
-  linkedOntology,
+  registerOntologies,
   registerPackageExport,
   registerPackageModule,
   packageExports,

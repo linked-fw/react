@@ -151,7 +151,7 @@ Both formats are supported. For linked-set wrappers, the external API is also `o
 
 ### Export your components from `src/components/index.ts`
 
-A package offers its components to builders (Create Now's drag-and-drop builder) through
+A package offers its components to builders (such as a host app's drag-and-drop builder) through
 `src/components/index.ts`: export each linked component by name.
 
 ```ts
