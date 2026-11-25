@@ -68,7 +68,7 @@
     }
   },
   "devDependencies": {
-    "@_linked/cli": "^1.45.5",
+    "@_linked/cli": "^2.0.0",
     "@_linked/core": "^3.0.0",
     "@_linked/xsd": "^2.0.0",
     "@changesets/changelog-github": "^1.0.0",
